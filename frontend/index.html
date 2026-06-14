@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Sanskrit Coach</title>
+<link href="https://fonts.googleapis.com/css2?family=Tiro+Devanagari+Sanskrit:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --gold:    #F5A623;
+    --orange:  #F26522;
+    --pink:    #F0176F;
+    --purple:  #8B2FC9;
+    --blue:    #3D7EF5;
+    --bg:      #0E0A1A;
+    --surface: #1A1230;
+    --border:  #2A1F45;
+    --text:    #F0EAF8;
+    --muted:   #7A6FA0;
+    --radius:  16px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+  header { display: flex; align-items: center; justify-content: space-between; padding: 18px 32px; border-bottom: 1px solid var(--border); }
+  .logo { font-family: 'Tiro Devanagari Sanskrit', serif; font-size: 22px; background: linear-gradient(90deg, var(--gold), var(--orange), var(--pink)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .level-badges { display: flex; gap: 8px; }
+  .badge { padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; cursor: pointer; border: 1.5px solid var(--border); background: transparent; color: var(--muted); transition: all 0.2s; }
+  .badge:hover { border-color: var(--purple); color: var(--text); }
+  .badge.active { background: linear-gradient(135deg, var(--purple), var(--blue)); border-color: transparent; color: #fff; }
+
+  main { flex: 1; display: grid; grid-template-columns: 1fr 380px; gap: 24px; padding: 24px 32px; max-width: 1200px; width: 100%; margin: 0 auto; }
+
+  .karaoke-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
+  .panel-label { font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); padding: 18px 24px 0; }
+  .sentence-list { flex: 1; padding: 24px; display: flex; flex-direction: column; gap: 28px; overflow-y: auto; }
+  .sentence-item { opacity: 0.25; transition: opacity 0.5s, transform 0.4s; transform: translateY(4px); }
+  .sentence-item.active { opacity: 1; transform: translateY(0); }
+  .sentence-item.done { opacity: 0.4; }
+  .skt-text { font-family: 'Tiro Devanagari Sanskrit', serif; font-size: 28px; line-height: 1.5; color: var(--text); margin-bottom: 6px; }
+  .sentence-item.active .skt-text { background: linear-gradient(90deg, var(--gold), var(--orange), var(--pink)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .translit { font-size: 13px; color: var(--muted); font-style: italic; margin-bottom: 4px; }
+  .sentence-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .sentence-num { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 11px; font-weight: 600; background: var(--border); color: var(--muted); margin-bottom: 8px; }
+  .sentence-item.active .sentence-num { background: linear-gradient(135deg, var(--pink), var(--purple)); color: #fff; }
+  .sentence-item.done .sentence-num { background: var(--purple); color: #fff; opacity: 0.5; }
+  .progress-bar { height: 3px; background: var(--border); }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, var(--gold), var(--orange), var(--pink), var(--purple)); transition: width 0.6s ease; width: 0%; }
+
+  .right-panel { display: flex; flex-direction: column; gap: 16px; }
+  .transcript-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; min-height: 100px; flex-shrink: 0; }
+  .transcript-box .panel-label { padding: 0 0 12px; }
+  .transcript-text { font-size: 14px; line-height: 1.7; color: var(--text); min-height: 50px; }
+  .transcript-text.empty { color: var(--muted); font-style: italic; }
+
+  .mic-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .mic-card { background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 20px 16px; display: flex; flex-direction: column; align-items: center; gap: 10px; transition: border-color 0.2s, box-shadow 0.2s; }
+  .mic-card.speaking { border-color: var(--pink); box-shadow: 0 0 20px rgba(240,23,111,0.15); }
+  .mic-card.ai-speaking { border-color: var(--blue); box-shadow: 0 0 20px rgba(61,126,245,0.15); }
+  .avatar { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; position: relative; }
+  .avatar.user-av { background: linear-gradient(135deg, var(--orange), var(--pink)); }
+  .avatar.ai-av   { background: linear-gradient(135deg, var(--purple), var(--blue)); }
+  .avatar-label { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.5px; }
+  .pulse-ring { position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--pink); opacity: 0; }
+  .mic-card.speaking .pulse-ring { animation: pulse 1.2s ease-out infinite; opacity: 1; }
+  .ai-pulse-ring { position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--blue); opacity: 0; }
+  .mic-card.ai-speaking .ai-pulse-ring { animation: pulse 1.2s ease-out infinite; opacity: 1; }
+  @keyframes pulse { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.4); opacity: 0; } }
+
+  .waveform { display: flex; align-items: center; gap: 3px; height: 20px; }
+  .wave-bar { width: 3px; border-radius: 2px; background: var(--border); height: 4px; }
+  .mic-card.speaking .wave-bar { background: var(--pink); animation: wave 0.8s ease-in-out infinite; }
+  .mic-card.ai-speaking .wave-bar { background: var(--blue); animation: wave 0.8s ease-in-out infinite; }
+  .wave-bar:nth-child(1) { animation-delay: 0.0s; }
+  .wave-bar:nth-child(2) { animation-delay: 0.1s; }
+  .wave-bar:nth-child(3) { animation-delay: 0.2s; }
+  .wave-bar:nth-child(4) { animation-delay: 0.15s; }
+  .wave-bar:nth-child(5) { animation-delay: 0.05s; }
+  @keyframes wave { 0%, 100% { height: 4px; } 50% { height: 16px; } }
+
+  .controls { display: flex; gap: 10px; }
+  .btn { flex: 1; padding: 14px; border-radius: 12px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: 'Inter', sans-serif; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-start { background: linear-gradient(135deg, var(--pink), var(--purple)); color: #fff; }
+  .btn-start:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
+  .btn-stop { background: var(--border); color: var(--muted); }
+  .btn-stop:hover:not(:disabled) { background: #3A2A55; color: var(--text); }
+  .btn-next { background: linear-gradient(135deg, var(--purple), var(--blue)); color: #fff; }
+  .btn-next:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
+
+  .status-row { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: 13px; color: var(--muted); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .status-dot.connected  { background: #22C55E; box-shadow: 0 0 6px #22C55E; }
+  .status-dot.listening  { background: var(--pink); box-shadow: 0 0 6px var(--pink); animation: blink 1s ease-in-out infinite; }
+  .status-dot.processing { background: var(--gold); box-shadow: 0 0 6px var(--gold); animation: blink 0.5s ease-in-out infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* Landing */
+  #landing { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 40px; z-index: 100; }
+  .landing-title { font-family: 'Tiro Devanagari Sanskrit', serif; font-size: clamp(36px, 6vw, 64px); text-align: center; line-height: 1.2; }
+  .landing-title span { display: block; font-size: clamp(16px, 2vw, 20px); font-family: 'Inter', sans-serif; color: var(--muted); margin-top: 12px; font-weight: 400; }
+  .landing-gradient { background: linear-gradient(90deg, var(--gold), var(--orange), var(--pink), var(--purple), var(--blue)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .level-picker { display: flex; flex-direction: column; gap: 12px; width: 320px; }
+  .level-card { background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 20px 24px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: space-between; }
+  .level-card:hover { border-color: var(--purple); transform: translateX(4px); }
+  .level-card-name { font-weight: 600; font-size: 16px; }
+  .level-card-desc { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .level-card-arrow { color: var(--muted); font-size: 18px; }
+</style>
+</head>
+<body>
+
+<div id="landing">
+  <div class="landing-title">
+    <span class="landing-gradient">संस्कृत Coach</span>
+    <span>Your real-time Sanskrit tutor, powered by Sarvam AI</span>
+  </div>
+  <div class="level-picker">
+    <div class="level-card" onclick="startSession('easy')">
+      <div><div class="level-card-name">Easy</div><div class="level-card-desc">Reading + meaning</div></div>
+      <div class="level-card-arrow">→</div>
+    </div>
+    <div class="level-card" onclick="startSession('intermediate')">
+      <div><div class="level-card-name">Intermediate</div><div class="level-card-desc">Reading + meaning + translation</div></div>
+      <div class="level-card-arrow">→</div>
+    </div>
+    <div class="level-card" onclick="startSession('hard')">
+      <div><div class="level-card-name">Hard</div><div class="level-card-desc">Reading + translation + grammar</div></div>
+      <div class="level-card-arrow">→</div>
+    </div>
+  </div>
+</div>
+
+<header>
+  <div class="logo">संस्कृत Coach</div>
+  <div class="level-badges">
+    <button class="badge" onclick="goHome()">← Change level</button>
+    <button class="badge active" id="active-level-badge">Easy</button>
+  </div>
+</header>
+
+<main>
+  <div class="karaoke-panel">
+    <div class="panel-label">Sentences</div>
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="sentence-list" id="sentence-list">
+      <div style="color:var(--muted);font-size:14px;padding:12px 0;">Choose a level to begin.</div>
+    </div>
+  </div>
+
+  <div class="right-panel">
+    <div class="transcript-box">
+      <div class="panel-label">What I heard</div>
+      <div class="transcript-text empty" id="transcript-text">Start speaking — your words will appear here.</div>
+    </div>
+    <div class="transcript-box">
+      <div class="panel-label">Tutor says</div>
+      <div class="transcript-text empty" id="ai-text">The tutor's response will appear here.</div>
+    </div>
+    <div class="mic-cards">
+      <div class="mic-card" id="user-card">
+        <div class="avatar user-av">🎙<div class="pulse-ring"></div></div>
+        <div class="avatar-label">ME</div>
+        <div class="waveform">
+          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+        </div>
+      </div>
+      <div class="mic-card" id="ai-card">
+        <div class="avatar ai-av">🤖<div class="ai-pulse-ring"></div></div>
+        <div class="avatar-label">AI TUTOR</div>
+        <div class="waveform">
+          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+        </div>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="btn btn-start" id="btn-start" onclick="startListening()" disabled>🎙 Start</button>
+      <button class="btn btn-stop"  id="btn-stop"  onclick="stopListening()" disabled>⏹ Stop</button>
+      <button class="btn btn-next"  id="btn-next"  onclick="moveOn()" disabled>Next →</button>
+    </div>
+    <div class="status-row">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Not connected. Choose a level to begin.</span>
+    </div>
+  </div>
+</main>
+
+<script>
+const API_BASE = 'http://localhost:8000';
+
+let ws = null;
+let sessionId = null;
+let currentLevel = 'easy';
+let sentences = {};          // index → sentence object
+let currentIndex = 0;
+let renderedIndices = [];    // track render order
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+let audioContext = null;
+
+// ── Session start ─────────────────────────────────────────────────────────────
+async function startSession(level) {
+  currentLevel = level;
+  document.getElementById('landing').style.display = 'none';
+  document.getElementById('active-level-badge').textContent =
+    level.charAt(0).toUpperCase() + level.slice(1);
+  setStatus('processing', 'Connecting...');
+
+  try {
+    const res = await fetch(`${API_BASE}/session/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level }),
+    });
+    const data = await res.json();
+    sessionId = data.session_id;
+    connectWS(sessionId, level);
+  } catch (e) {
+    setStatus('', 'Could not reach backend. Is the server running on :8000?');
+  }
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+function connectWS(sid, level) {
+  ws = new WebSocket(`ws://localhost:8000/ws/${sid}`);
+
+  ws.onopen = () => {
+    setStatus('connected', 'Connected — sending init...');
+    ws.send(JSON.stringify({ type: 'init', level, sentence_index: 0 }));
+  };
+
+  ws.onmessage = async (event) => {
+    const msg = JSON.parse(event.data);
+    console.log('[WS]', msg.type, msg);
+
+    switch (msg.type) {
+
+      case 'next_sentence':
+        // FIX: store sentence data immediately, then render
+        if (msg.sentence) sentences[msg.index] = msg.sentence;
+        currentIndex = msg.index;
+        renderSentence(msg.index);
+        highlightActive(msg.index);
+        updateProgress(msg.index);
+        document.getElementById('btn-start').disabled = false;
+        document.getElementById('btn-next').disabled = false;
+        setStatus('connected', 'Session ready. Click Start and read the sentence aloud.');
+        break;
+
+      case 'transcript':
+        const tel = document.getElementById('transcript-text');
+        tel.textContent = msg.text;
+        tel.classList.remove('empty');
+        setStatus('processing', 'Tutor is thinking...');
+        break;
+
+      case 'ai_text':
+        const ael = document.getElementById('ai-text');
+        ael.textContent = msg.text;
+        ael.classList.remove('empty');
+        setAISpeaking(true);
+        setStatus('processing', 'Tutor is speaking...');
+        break;
+
+      case 'ai_audio':
+        await playBase64Audio(msg.data);
+        break;
+
+      case 'session_complete':
+        setStatus('connected', '🎉 All sentences complete! Great work.');
+        document.getElementById('btn-next').disabled = true;
+        document.getElementById('btn-start').disabled = true;
+        break;
+
+      case 'error':
+        console.error('[WS error]', msg.message);
+        setStatus('', `Error: ${msg.message}`);
+        break;
+    }
+  };
+
+  ws.onclose = () => setStatus('', 'Disconnected.');
+  ws.onerror = (e) => { console.error('[WS]', e); setStatus('', 'WebSocket error — check console.'); };
+}
+
+// ── Karaoke rendering ─────────────────────────────────────────────────────────
+function renderSentence(index) {
+  if (renderedIndices.includes(index)) return;  // already rendered
+
+  const s = sentences[index];
+  if (!s) return;
+
+  const list = document.getElementById('sentence-list');
+
+  // Clear placeholder on first render
+  if (renderedIndices.length === 0) list.innerHTML = '';
+
+  const item = document.createElement('div');
+  item.className = 'sentence-item';
+  item.id = `sentence-${index}`;
+  item.innerHTML = `
+    <div class="sentence-num">${index + 1}</div>
+    <div class="skt-text">${s.sanskrit}</div>
+    <div class="translit">${s.transliteration}</div>
+    <div class="sentence-meta">${s.meaning_en}</div>
+  `;
+  list.appendChild(item);
+  renderedIndices.push(index);
+}
+
+function highlightActive(activeIndex) {
+  renderedIndices.forEach(i => {
+    const el = document.getElementById(`sentence-${i}`);
+    if (!el) return;
+    el.classList.remove('active', 'done');
+    if (i === activeIndex) el.classList.add('active');
+    else if (i < activeIndex) el.classList.add('done');
+  });
+
+  // Scroll active into view
+  const active = document.getElementById(`sentence-${activeIndex}`);
+  if (active) setTimeout(() => active.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+}
+
+function updateProgress(index) {
+  const total = Object.keys(sentences).length || 5;
+  document.getElementById('progress-fill').style.width =
+    `${Math.round((index / Math.max(total, 1)) * 100)}%`;
+}
+
+// ── Recording — FIX: send as WAV via AudioContext ─────────────────────────────
+async function startListening() {
+  if (!audioContext) audioContext = new AudioContext({ sampleRate: 16000 });
+  if (audioContext.state === 'suspended') await audioContext.resume();
+
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    setStatus('', 'Not connected yet.'); return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Use webm for recording (broadest browser support)
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+    isRecording = true;
+
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+
+    mediaRecorder.onstop = async () => {
+      setUserSpeaking(false);
+      setStatus('processing', 'Converting audio...');
+      try {
+        // Decode webm → PCM → re-encode as WAV, then send
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        const arrayBuffer = await blob.arrayBuffer();
+        if (!audioContext) audioContext = new AudioContext({ sampleRate: 16000 });
+        const decoded = await audioContext.decodeAudioData(arrayBuffer);
+        const wavBytes = encodeWAV(decoded);
+        const base64 = arrayBufferToBase64(wavBytes);
+        ws.send(JSON.stringify({ type: 'audio_chunk', data: base64 }));
+        setStatus('processing', 'Processing your speech...');
+      } catch (e) {
+        console.error('Audio conversion error:', e);
+        setStatus('', 'Audio conversion failed — try again.');
+      }
+      // Stop all tracks
+      stream.getTracks().forEach(t => t.stop());
+    };
+
+    mediaRecorder.start();
+    setUserSpeaking(true);
+    setStatus('listening', 'Listening — speak now...');
+    document.getElementById('btn-start').disabled = true;
+    document.getElementById('btn-stop').disabled = false;
+  } catch (e) {
+    setStatus('', 'Microphone access denied.');
+  }
+}
+
+function stopListening() {
+  if (mediaRecorder && isRecording) {
+    mediaRecorder.stop();
+    isRecording = false;
+    document.getElementById('btn-start').disabled = false;
+    document.getElementById('btn-stop').disabled = true;
+  }
+}
+
+function moveOn() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'move_on' }));
+    setStatus('connected', 'Moving to next sentence...');
+  }
+}
+
+// ── WAV encoder ───────────────────────────────────────────────────────────────
+function encodeWAV(audioBuffer) {
+  const numChannels = 1;
+  const sampleRate = audioBuffer.sampleRate;
+  const samples = audioBuffer.getChannelData(0);
+  const int16 = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    int16[i] = Math.max(-32768, Math.min(32767, Math.round(samples[i] * 32767)));
+  }
+  const dataLength = int16.length * 2;
+  const buffer = new ArrayBuffer(44 + dataLength);
+  const view = new DataView(buffer);
+
+  const writeStr = (off, str) => { for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i)); };
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + dataLength, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numChannels * 2, true);
+  view.setUint16(32, numChannels * 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  view.setUint32(40, dataLength, true);
+  new Int16Array(buffer, 44).set(int16);
+  return buffer;
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+// ── Audio playback — FIX: handle WAV from Sarvam ─────────────────────────────
+async function playBase64Audio(b64) {
+  try {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    if (!audioContext) audioContext = new AudioContext();
+    // Resume context if suspended (autoplay policy)
+    if (audioContext.state === 'suspended') await audioContext.resume();
+
+    const buffer = await audioContext.decodeAudioData(bytes.buffer.slice(0));
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContext.destination);
+    source.start(0);
+    source.onended = () => {
+      setAISpeaking(false);
+      setStatus('connected', 'Your turn — speak or ask a question.');
+    };
+  } catch (e) {
+    console.warn('[Audio] Playback failed:', e);
+    // Still show text even if audio fails
+    setAISpeaking(false);
+    setStatus('connected', 'Audio playback failed — but you can read the tutor reply above.');
+  }
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function setStatus(type, text) {
+  const dot = document.getElementById('status-dot');
+  dot.className = 'status-dot' + (type ? ' ' + type : '');
+  document.getElementById('status-text').textContent = text;
+}
+
+function setUserSpeaking(v) { document.getElementById('user-card').classList.toggle('speaking', v); }
+function setAISpeaking(v)   { document.getElementById('ai-card').classList.toggle('ai-speaking', v); }
+
+function goHome() {
+  if (ws) ws.close();
+  ws = null; sessionId = null; sentences = {}; currentIndex = 0; renderedIndices = [];
+  document.getElementById('sentence-list').innerHTML =
+    '<div style="color:var(--muted);font-size:14px;padding:12px 0;">Choose a level to begin.</div>';
+  document.getElementById('transcript-text').textContent = 'Start speaking — your words will appear here.';
+  document.getElementById('transcript-text').className = 'transcript-text empty';
+  document.getElementById('ai-text').textContent = "The tutor's response will appear here.";
+  document.getElementById('ai-text').className = 'transcript-text empty';
+  document.getElementById('progress-fill').style.width = '0%';
+  document.getElementById('btn-start').disabled = true;
+  document.getElementById('btn-stop').disabled = true;
+  document.getElementById('btn-next').disabled = true;
+  setStatus('', 'Not connected. Choose a level to begin.');
+  document.getElementById('landing').style.display = 'flex';
+}
+</script>
+</body>
+</html>
