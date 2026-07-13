@@ -1,7 +1,7 @@
 # Sanskrit Coach — AI Sanskrit Tutor
 
 A real-time Sanskrit learning assistant powered by Sarvam AI (STT + TTS), Gemini LLM, FastAPI, and WebSockets.
-
+demo - https://drive.google.com/file/d/19n7t26MbQN2rP7mb5LBRb3Pqo165nnPU/view
 ---
 
 ## Project structure
