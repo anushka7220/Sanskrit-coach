@@ -4,135 +4,316 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Sanskrit Coach</title>
-<link href="https://fonts.googleapis.com/css2?family=Tiro+Devanagari+Sanskrit:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tiro+Devanagari+Sanskrit:ital@0;1&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Karla:wght@400;500;700&display=swap" rel="stylesheet"/>
 <style>
   :root {
-    --gold:    #F5A623;
-    --orange:  #F26522;
-    --pink:    #F0176F;
-    --purple:  #8B2FC9;
-    --blue:    #3D7EF5;
-    --bg:      #0E0A1A;
-    --surface: #1A1230;
-    --border:  #2A1F45;
-    --text:    #F0EAF8;
-    --muted:   #7A6FA0;
-    --radius:  16px;
+    /* palette from your swatch */
+    --sage:   #A5A487;
+    --khaki:  #D2CB95;
+    --cream:  #EFE9D3;
+    --ivory:  #F7F3E6;
+    --rose:   #D5A491;
+    --mauve:  #B08590;
+    --ink:    #37325A;   /* deep plum from the swatch corner */
+    --ink-soft: #6F6A8C;
+    --line:   rgba(55,50,90,0.14);
+    --radius: 18px;
+    --shadow: 0 10px 30px rgba(55,50,90,0.10);
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Karla', sans-serif;
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(213,164,145,0.22), transparent 60%),
+      radial-gradient(900px 500px at -10% 100%, rgba(165,164,135,0.20), transparent 55%),
+      var(--cream);
+    color: var(--ink);
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  button { font-family: 'Karla', sans-serif; }
+  :focus-visible { outline: 3px solid var(--mauve); outline-offset: 2px; border-radius: 6px; }
 
-  header { display: flex; align-items: center; justify-content: space-between; padding: 18px 32px; border-bottom: 1px solid var(--border); }
-  .logo { font-family: 'Tiro Devanagari Sanskrit', serif; font-size: 22px; background: linear-gradient(90deg, var(--gold), var(--orange), var(--pink)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  /* ── Header ─────────────────────────────────────────────── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 32px; border-bottom: 1px solid var(--line);
+    background: rgba(247,243,230,0.7); backdrop-filter: blur(6px);
+    position: sticky; top: 0; z-index: 20;
+  }
+  .logo { display: flex; align-items: baseline; gap: 10px; }
+  .logo .dev { font-family: 'Tiro Devanagari Sanskrit', serif; font-size: 24px; color: var(--ink); }
+  .logo .lat { font-family: 'Fraunces', serif; font-size: 15px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); }
   .level-badges { display: flex; gap: 8px; }
-  .badge { padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; cursor: pointer; border: 1.5px solid var(--border); background: transparent; color: var(--muted); transition: all 0.2s; }
-  .badge:hover { border-color: var(--purple); color: var(--text); }
-  .badge.active { background: linear-gradient(135deg, var(--purple), var(--blue)); border-color: transparent; color: #fff; }
+  .badge {
+    padding: 7px 16px; border-radius: 999px; font-size: 13px; font-weight: 700;
+    cursor: pointer; border: 1.5px solid var(--line); background: transparent;
+    color: var(--ink-soft); transition: all .2s;
+  }
+  .badge:hover { border-color: var(--mauve); color: var(--ink); }
+  .badge.active { background: var(--ink); border-color: var(--ink); color: var(--ivory); cursor: default; }
 
-  main { flex: 1; display: grid; grid-template-columns: 1fr 380px; gap: 24px; padding: 24px 32px; max-width: 1200px; width: 100%; margin: 0 auto; }
+  /* ── Layout ─────────────────────────────────────────────── */
+  main {
+    flex: 1; display: grid; grid-template-columns: minmax(0,1fr) 420px;
+    gap: 24px; padding: 24px 32px 40px; max-width: 1240px; width: 100%; margin: 0 auto;
+  }
+  @media (max-width: 960px) {
+    main { grid-template-columns: 1fr; padding: 16px; }
+  }
 
-  .karaoke-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
-  .panel-label { font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); padding: 18px 24px 0; }
-  .sentence-list { flex: 1; padding: 24px; display: flex; flex-direction: column; gap: 28px; overflow-y: auto; }
-  .sentence-item { opacity: 0.25; transition: opacity 0.5s, transform 0.4s; transform: translateY(4px); }
-  .sentence-item.active { opacity: 1; transform: translateY(0); }
-  .sentence-item.done { opacity: 0.4; }
-  .skt-text { font-family: 'Tiro Devanagari Sanskrit', serif; font-size: 28px; line-height: 1.5; color: var(--text); margin-bottom: 6px; }
-  .sentence-item.active .skt-text { background: linear-gradient(90deg, var(--gold), var(--orange), var(--pink)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-  .translit { font-size: 13px; color: var(--muted); font-style: italic; margin-bottom: 4px; }
-  .sentence-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
-  .sentence-num { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 11px; font-weight: 600; background: var(--border); color: var(--muted); margin-bottom: 8px; }
-  .sentence-item.active .sentence-num { background: linear-gradient(135deg, var(--pink), var(--purple)); color: #fff; }
-  .sentence-item.done .sentence-num { background: var(--purple); color: #fff; opacity: 0.5; }
-  .progress-bar { height: 3px; background: var(--border); }
-  .progress-fill { height: 100%; background: linear-gradient(90deg, var(--gold), var(--orange), var(--pink), var(--purple)); transition: width 0.6s ease; width: 0%; }
+  .panel-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-soft);
+  }
 
-  .right-panel { display: flex; flex-direction: column; gap: 16px; }
-  .transcript-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; min-height: 100px; flex-shrink: 0; }
-  .transcript-box .panel-label { padding: 0 0 12px; }
-  .transcript-text { font-size: 14px; line-height: 1.7; color: var(--text); min-height: 50px; }
-  .transcript-text.empty { color: var(--muted); font-style: italic; }
+  /* ── Sentences (karaoke) ────────────────────────────────── */
+  .karaoke-panel {
+    background: var(--ivory); border: 1px solid var(--line); border-radius: var(--radius);
+    display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--shadow);
+    min-height: 420px;
+  }
+  .karaoke-head { display:flex; align-items:center; justify-content:space-between; padding: 18px 24px 12px; }
+  .progress-wrap { display:flex; align-items:center; gap:10px; }
+  .progress-count { font-size: 12px; font-weight: 700; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .progress-bar { width: 120px; height: 6px; border-radius: 999px; background: rgba(55,50,90,0.10); overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--sage), var(--khaki), var(--rose), var(--mauve)); transition: width .6s ease; width: 0%; }
 
-  .mic-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .mic-card { background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 20px 16px; display: flex; flex-direction: column; align-items: center; gap: 10px; transition: border-color 0.2s, box-shadow 0.2s; }
-  .mic-card.speaking { border-color: var(--pink); box-shadow: 0 0 20px rgba(240,23,111,0.15); }
-  .mic-card.ai-speaking { border-color: var(--blue); box-shadow: 0 0 20px rgba(61,126,245,0.15); }
-  .avatar { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; position: relative; }
-  .avatar.user-av { background: linear-gradient(135deg, var(--orange), var(--pink)); }
-  .avatar.ai-av   { background: linear-gradient(135deg, var(--purple), var(--blue)); }
-  .avatar-label { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.5px; }
-  .pulse-ring { position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--pink); opacity: 0; }
-  .mic-card.speaking .pulse-ring { animation: pulse 1.2s ease-out infinite; opacity: 1; }
-  .ai-pulse-ring { position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--blue); opacity: 0; }
-  .mic-card.ai-speaking .ai-pulse-ring { animation: pulse 1.2s ease-out infinite; opacity: 1; }
-  @keyframes pulse { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.4); opacity: 0; } }
+  .sentence-list { flex: 1; padding: 8px 24px 24px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+  .placeholder { color: var(--ink-soft); font-size: 14px; padding: 12px 0; }
 
-  .waveform { display: flex; align-items: center; gap: 3px; height: 20px; }
-  .wave-bar { width: 3px; border-radius: 2px; background: var(--border); height: 4px; }
-  .mic-card.speaking .wave-bar { background: var(--pink); animation: wave 0.8s ease-in-out infinite; }
-  .mic-card.ai-speaking .wave-bar { background: var(--blue); animation: wave 0.8s ease-in-out infinite; }
-  .wave-bar:nth-child(1) { animation-delay: 0.0s; }
-  .wave-bar:nth-child(2) { animation-delay: 0.1s; }
-  .wave-bar:nth-child(3) { animation-delay: 0.2s; }
-  .wave-bar:nth-child(4) { animation-delay: 0.15s; }
-  .wave-bar:nth-child(5) { animation-delay: 0.05s; }
-  @keyframes wave { 0%, 100% { height: 4px; } 50% { height: 16px; } }
+  .sentence-item {
+    position: relative; padding: 16px 18px 16px 52px; border-radius: 14px;
+    border: 1.5px solid transparent;
+    opacity: 0.45; transition: opacity .5s, transform .4s, background .4s, border-color .4s;
+    transform: translateY(4px);
+  }
+  .sentence-item.active {
+    opacity: 1; transform: translateY(0);
+    background: var(--cream); border-color: var(--rose);
+    box-shadow: 0 6px 18px rgba(213,164,145,0.25);
+  }
+  .sentence-item.done { opacity: 0.5; }
+  .skt-text { font-family: 'Tiro Devanagari Sanskrit', serif; font-size: 27px; line-height: 1.55; color: var(--ink); margin-bottom: 4px; }
+  .sentence-item.done .skt-text { text-decoration: line-through; text-decoration-color: rgba(55,50,90,0.25); text-decoration-thickness: 1px; }
+  .translit { font-size: 13px; color: var(--ink-soft); font-style: italic; margin-bottom: 2px; }
+  .sentence-meta { font-size: 13px; color: var(--ink-soft); }
+  .sentence-num {
+    position: absolute; left: 16px; top: 20px;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 50%; font-size: 11px; font-weight: 700;
+    background: rgba(55,50,90,0.10); color: var(--ink-soft);
+  }
+  .sentence-item.active .sentence-num { background: var(--mauve); color: var(--ivory); }
+  .sentence-item.done .sentence-num { background: var(--sage); color: var(--ivory); }
+  .sentence-item.done .sentence-num::after { content: '✓'; position: absolute; }
+  .sentence-item.done .sentence-num span { visibility: hidden; }
+
+  /* ── Tutor stage ────────────────────────────────────────── */
+  .right-panel { display: flex; flex-direction: column; gap: 14px; }
+  .tutor-stage {
+    position: relative; background: var(--ivory); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 18px 18px 0; overflow: hidden;
+  }
+  .tutor-stage::before {
+    content: ''; position: absolute; inset: auto 0 0 0; height: 46%;
+    background: linear-gradient(180deg, transparent, rgba(165,164,135,0.18));
+    pointer-events: none;
+  }
+
+  /* speech cloud */
+  .cloud {
+    position: relative; background: var(--cream); border: 1.5px solid var(--line);
+    border-radius: 16px; padding: 14px 16px; min-height: 64px;
+    font-size: 14px; line-height: 1.65; color: var(--ink);
+    transition: border-color .3s;
+  }
+  .cloud.empty { color: var(--ink-soft); font-style: italic; }
+  .cloud.speaking { border-color: var(--mauve); }
+  .cloud::after {
+    content: ''; position: absolute; left: 50%; bottom: -9px; width: 16px; height: 16px;
+    background: var(--cream); border-right: 1.5px solid var(--line); border-bottom: 1.5px solid var(--line);
+    transform: translateX(-50%) rotate(45deg);
+  }
+  .cloud .dots { display: inline-flex; gap: 4px; }
+  .cloud .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-soft); animation: dotpulse 1s ease-in-out infinite; }
+  .cloud .dots i:nth-child(2) { animation-delay: .15s; }
+  .cloud .dots i:nth-child(3) { animation-delay: .3s; }
+  @keyframes dotpulse { 0%,100%{ opacity:.25; transform: translateY(0);} 50%{ opacity:1; transform: translateY(-3px);} }
+
+  /* the tutor character */
+  .tutor-figure { display: flex; justify-content: center; padding: 10px 0 0; }
+  #tutor-svg { width: 230px; height: auto; display: block; }
+
+  .tutor-name-row { display:flex; align-items:center; justify-content:center; gap:8px; padding: 4px 0 14px; position: relative; }
+  .tutor-name { font-family: 'Fraunces', serif; font-size: 15px; font-weight: 600; color: var(--ink); }
+  .tutor-role { font-size: 12px; color: var(--ink-soft); }
+  .state-chip {
+    font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    padding: 3px 10px; border-radius: 999px; background: rgba(55,50,90,0.08); color: var(--ink-soft);
+    transition: all .3s;
+  }
+  .state-chip.listening { background: rgba(213,164,145,0.35); color: #8C5647; }
+  .state-chip.thinking  { background: rgba(210,203,149,0.45); color: #6E682F; }
+  .state-chip.speaking  { background: rgba(176,133,144,0.30); color: #7A4A58; }
+
+  /* character animation states — fill-box makes transform-origin resolve per-element */
+  .head-group { transform-box: fill-box; transform-origin: center bottom; }
+  .idle .head-group { animation: headfloat 4.5s ease-in-out infinite; }
+  @keyframes headfloat { 0%,100% { transform: translateY(0) rotate(0deg);} 50% { transform: translateY(-3px) rotate(-1deg);} }
+  .listening .head-group { animation: headtilt 2.4s ease-in-out infinite; }
+  @keyframes headtilt { 0%,100% { transform: rotate(0deg);} 50% { transform: rotate(3.5deg) translateY(-1px);} }
+  .speaking .head-group { animation: headnod 1.4s ease-in-out infinite; }
+  @keyframes headnod { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-2.5px);} }
+
+  .eyelid { transform-box: fill-box; transform-origin: center top; transform: scaleY(0); }
+  .idle .eyelid, .speaking .eyelid, .thinking .eyelid { animation: blink 4s infinite; }
+  @keyframes blink { 0%, 92%, 100% { transform: scaleY(0);} 95%, 97% { transform: scaleY(1);} }
+  .listening .eyelid { animation: none; transform: scaleY(0); }
+
+  .pupils { transition: transform .4s; }
+  .thinking .pupils { transform: translate(2px,-2.5px); }
+  .listening .pupils { transform: translateY(0.5px); }
+
+  /* mouth: closed by default, opens + moves while speaking */
+  .mouth-closed { opacity: 1; transition: opacity .15s; }
+  .mouth-open { opacity: 0; transform-box: fill-box; transform-origin: center top; }
+  .speaking .mouth-closed { opacity: 0; }
+  .speaking .mouth-open { opacity: 1; animation: talk .28s ease-in-out infinite alternate; }
+  @keyframes talk { from { transform: scaleY(0.25);} to { transform: scaleY(1);} }
+
+  .brow { transition: transform .3s; }
+  .listening .brow-l { transform: translateY(-2px); }
+  .listening .brow-r { transform: translateY(-2.5px); }
+  .thinking .brow-r { transform: translateY(-2px) rotate(-3deg); }
+
+  .aura { opacity: 0; transition: opacity .4s; transform-box: fill-box; transform-origin: center; }
+  .listening .aura-rose { opacity: 1; animation: aurapulse 1.6s ease-out infinite; }
+  .speaking  .aura-mauve { opacity: 1; animation: aurapulse 1.6s ease-out infinite; }
+  @keyframes aurapulse { 0% { transform: scale(0.96); opacity:.8;} 100% { transform: scale(1.06); opacity:0;} }
+
+  /* waving arm — hidden by default, plays once when .greeting is present, then fades away */
+  .hand-wave { transform-box: fill-box; transform-origin: bottom center; opacity: 0; transition: opacity .5s ease; }
+  .greeting .hand-wave { opacity: 1; animation: wavehand 0.75s ease-in-out 2; }
+  @keyframes wavehand { 0%,100%{ transform: rotate(0);} 25% { transform: rotate(-16deg);} 75% { transform: rotate(6deg);} }
+
+  /* ── I heard / controls / status ────────────────────────── */
+  .heard-box {
+    background: var(--ivory); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 16px; box-shadow: var(--shadow);
+  }
+  .heard-box .panel-label { margin-bottom: 6px; }
+  .heard-text { font-size: 14px; line-height: 1.6; color: var(--ink); min-height: 22px; }
+  .heard-text.empty { color: var(--ink-soft); font-style: italic; }
 
   .controls { display: flex; gap: 10px; }
-  .btn { flex: 1; padding: 14px; border-radius: 12px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: 'Inter', sans-serif; }
+  .btn {
+    flex: 1; padding: 14px; border-radius: 13px; border: 1.5px solid transparent;
+    font-size: 14px; font-weight: 700; cursor: pointer; transition: all .2s;
+  }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .btn-start { background: linear-gradient(135deg, var(--pink), var(--purple)); color: #fff; }
-  .btn-start:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
-  .btn-stop { background: var(--border); color: var(--muted); }
-  .btn-stop:hover:not(:disabled) { background: #3A2A55; color: var(--text); }
-  .btn-next { background: linear-gradient(135deg, var(--purple), var(--blue)); color: #fff; }
-  .btn-next:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
+  .btn-start { background: var(--mauve); color: var(--ivory); box-shadow: 0 6px 16px rgba(176,133,144,0.4); }
+  .btn-start:hover:not(:disabled) { transform: translateY(-1px); background: #A2757F; }
+  .btn-stop { background: transparent; color: var(--ink-soft); border-color: var(--line); }
+  .btn-stop:hover:not(:disabled) { border-color: var(--ink-soft); color: var(--ink); }
+  .btn-next { background: var(--sage); color: var(--ivory); box-shadow: 0 6px 16px rgba(165,164,135,0.4); }
+  .btn-next:hover:not(:disabled) { transform: translateY(-1px); background: #93926F; }
+  .btn.recording { animation: recpulse 1.2s ease-in-out infinite; }
+  @keyframes recpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(213,164,145,0.5);} 50% { box-shadow: 0 0 0 8px rgba(213,164,145,0);} }
 
-  .status-row { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: 13px; color: var(--muted); }
-  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
-  .status-dot.connected  { background: #22C55E; box-shadow: 0 0 6px #22C55E; }
-  .status-dot.listening  { background: var(--pink); box-shadow: 0 0 6px var(--pink); animation: blink 1s ease-in-out infinite; }
-  .status-dot.processing { background: var(--gold); box-shadow: 0 0 6px var(--gold); animation: blink 0.5s ease-in-out infinite; }
-  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .status-row {
+    display: flex; align-items: center; gap: 9px; padding: 11px 16px;
+    background: var(--ivory); border: 1px solid var(--line); border-radius: 12px;
+    font-size: 13px; color: var(--ink-soft);
+  }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-soft); flex-shrink: 0; }
+  .status-dot.connected  { background: #7C9A6D; box-shadow: 0 0 6px #7C9A6D; }
+  .status-dot.listening  { background: var(--rose); box-shadow: 0 0 6px var(--rose); animation: blinkdot 1s ease-in-out infinite; }
+  .status-dot.processing { background: var(--khaki); box-shadow: 0 0 6px var(--khaki); animation: blinkdot .5s ease-in-out infinite; }
+  @keyframes blinkdot { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
-  /* Landing */
-  #landing { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 40px; z-index: 100; }
-  .landing-title { font-family: 'Tiro Devanagari Sanskrit', serif; font-size: clamp(36px, 6vw, 64px); text-align: center; line-height: 1.2; }
-  .landing-title span { display: block; font-size: clamp(16px, 2vw, 20px); font-family: 'Inter', sans-serif; color: var(--muted); margin-top: 12px; font-weight: 400; }
-  .landing-gradient { background: linear-gradient(90deg, var(--gold), var(--orange), var(--pink), var(--purple), var(--blue)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-  .level-picker { display: flex; flex-direction: column; gap: 12px; width: 320px; }
-  .level-card { background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 20px 24px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: space-between; }
-  .level-card:hover { border-color: var(--purple); transform: translateX(4px); }
-  .level-card-name { font-weight: 600; font-size: 16px; }
-  .level-card-desc { font-size: 12px; color: var(--muted); margin-top: 3px; }
-  .level-card-arrow { color: var(--muted); font-size: 18px; }
+  /* ── Landing ────────────────────────────────────────────── */
+  #landing {
+    position: fixed; inset: 0; z-index: 100;
+    background:
+      radial-gradient(1000px 500px at 80% -10%, rgba(213,164,145,0.28), transparent 60%),
+      radial-gradient(800px 500px at 0% 110%, rgba(165,164,135,0.25), transparent 55%),
+      var(--cream);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 36px;
+    padding: 24px;
+  }
+  .landing-title { text-align: center; }
+  .landing-title .dev {
+    font-family: 'Tiro Devanagari Sanskrit', serif;
+    font-size: clamp(44px, 7vw, 76px); color: var(--ink); line-height: 1.15; display: block;
+  }
+  .landing-title .sub {
+    font-family: 'Fraunces', serif; font-size: clamp(17px, 2.4vw, 22px);
+    color: var(--ink); display: block; margin-top: 10px; font-weight: 500;
+  }
+  .landing-title .tag { font-size: 14px; color: var(--ink-soft); display: block; margin-top: 8px; }
+  .swatch-row { display: flex; gap: 0; border-radius: 999px; overflow: hidden; width: 200px; height: 8px; border: 1px solid var(--line); }
+  .swatch-row i { flex: 1; }
+  .level-picker { display: flex; flex-direction: column; gap: 12px; width: min(360px, 90vw); }
+  .level-card {
+    background: var(--ivory); border: 1.5px solid var(--line); border-radius: var(--radius);
+    padding: 18px 22px; cursor: pointer; transition: all .2s;
+    display: flex; align-items: center; gap: 16px; text-align: left; width: 100%;
+    box-shadow: 0 4px 14px rgba(55,50,90,0.06);
+  }
+  .level-card:hover { border-color: var(--mauve); transform: translateX(4px); box-shadow: 0 8px 20px rgba(55,50,90,0.12); }
+  .level-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+  .level-card-name { font-family: 'Fraunces', serif; font-weight: 600; font-size: 17px; color: var(--ink); }
+  .level-card-desc { font-size: 12.5px; color: var(--ink-soft); margin-top: 3px; }
+  .level-card-arrow { margin-left: auto; color: var(--ink-soft); font-size: 18px; transition: transform .2s; }
+  .level-card:hover .level-card-arrow { transform: translateX(3px); color: var(--mauve); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
 </style>
 </head>
 <body>
 
+<!-- ── Landing ──────────────────────────────────────────────── -->
 <div id="landing">
   <div class="landing-title">
-    <span class="landing-gradient">संस्कृत Coach</span>
-    <span>Your real-time Sanskrit tutor, powered by Sarvam AI</span>
+    <span class="dev">संस्कृत Coach</span>
+    <span class="sub">Read aloud. Be heard. Be corrected — kindly.</span>
+    <span class="tag">A real-time voice tutor for Sanskrit, powered by Sarvam AI</span>
+  </div>
+  <div class="swatch-row" aria-hidden="true">
+    <i style="background:var(--sage)"></i><i style="background:var(--khaki)"></i>
+    <i style="background:var(--ivory)"></i><i style="background:var(--rose)"></i>
+    <i style="background:var(--mauve)"></i>
   </div>
   <div class="level-picker">
-    <div class="level-card" onclick="startSession('easy')">
-      <div><div class="level-card-name">Easy</div><div class="level-card-desc">Reading + meaning</div></div>
-      <div class="level-card-arrow">→</div>
-    </div>
-    <div class="level-card" onclick="startSession('intermediate')">
-      <div><div class="level-card-name">Intermediate</div><div class="level-card-desc">Reading + meaning + translation</div></div>
-      <div class="level-card-arrow">→</div>
-    </div>
-    <div class="level-card" onclick="startSession('hard')">
-      <div><div class="level-card-name">Hard</div><div class="level-card-desc">Reading + translation + grammar</div></div>
-      <div class="level-card-arrow">→</div>
-    </div>
+    <button class="level-card" onclick="startSession('easy')">
+      <span class="level-dot" style="background:var(--sage)"></span>
+      <span><span class="level-card-name">Easy</span><span class="level-card-desc" style="display:block">Reading + meaning</span></span>
+      <span class="level-card-arrow">→</span>
+    </button>
+    <button class="level-card" onclick="startSession('intermediate')">
+      <span class="level-dot" style="background:var(--rose)"></span>
+      <span><span class="level-card-name">Intermediate</span><span class="level-card-desc" style="display:block">Reading + meaning + translation</span></span>
+      <span class="level-card-arrow">→</span>
+    </button>
+    <button class="level-card" onclick="startSession('hard')">
+      <span class="level-dot" style="background:var(--mauve)"></span>
+      <span><span class="level-card-name">Hard</span><span class="level-card-desc" style="display:block">Reading + translation + grammar</span></span>
+      <span class="level-card-arrow">→</span>
+    </button>
   </div>
 </div>
 
+<!-- ── App ──────────────────────────────────────────────────── -->
 <header>
-  <div class="logo">संस्कृत Coach</div>
+  <div class="logo">
+    <span class="dev">संस्कृत</span><span class="lat">Coach</span>
+  </div>
   <div class="level-badges">
     <button class="badge" onclick="goHome()">← Change level</button>
     <button class="badge active" id="active-level-badge">Easy</button>
@@ -140,49 +321,199 @@
 </header>
 
 <main>
-  <div class="karaoke-panel">
-    <div class="panel-label">Sentences</div>
-    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+  <!-- Sentences -->
+  <section class="karaoke-panel" aria-label="Practice sentences">
+    <div class="karaoke-head">
+      <div class="panel-label">Sentences</div>
+      <div class="progress-wrap">
+        <div class="progress-count" id="progress-count">0 / 0</div>
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+      </div>
+    </div>
     <div class="sentence-list" id="sentence-list">
-      <div style="color:var(--muted);font-size:14px;padding:12px 0;">Choose a level to begin.</div>
+      <div class="placeholder">Choose a level to begin.</div>
     </div>
-  </div>
+  </section>
 
-  <div class="right-panel">
-    <div class="transcript-box">
+  <!-- Tutor -->
+  <section class="right-panel" aria-label="Tutor">
+    <div class="tutor-stage">
+      <div class="cloud empty" id="ai-cloud">The tutor's reply appears here — namaste, ready when you are.</div>
+
+      <div class="tutor-figure">
+        <!-- Tutor character -->
+        <svg id="tutor-svg" class="idle" viewBox="0 0 240 270" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Animated Sanskrit tutor">
+          <defs>
+            <radialGradient id="skin" cx="42%" cy="35%" r="75%">
+              <stop offset="0%" stop-color="#F2CDB4"/>
+              <stop offset="70%" stop-color="#E3B195"/>
+              <stop offset="100%" stop-color="#CE9A7E"/>
+            </radialGradient>
+            <linearGradient id="hair" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#4A3550"/>
+              <stop offset="60%" stop-color="#37325A"/>
+              <stop offset="100%" stop-color="#241F3D"/>
+            </linearGradient>
+            <linearGradient id="kurta" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#C398A2"/>
+              <stop offset="100%" stop-color="#B08590"/>
+            </linearGradient>
+            <linearGradient id="dupatta" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#B5B497"/>
+              <stop offset="100%" stop-color="#A5A487"/>
+            </linearGradient>
+            <radialGradient id="shine" cx="50%" cy="30%" r="60%">
+              <stop offset="0%" stop-color="rgba(255,255,255,0.55)"/>
+              <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+            </radialGradient>
+          </defs>
+
+          <!-- auras -->
+          <circle class="aura aura-rose"  cx="120" cy="130" r="98" fill="none" stroke="#D5A491" stroke-width="2.5"/>
+          <circle class="aura aura-mauve" cx="120" cy="130" r="98" fill="none" stroke="#B08590" stroke-width="2.5"/>
+
+          <!-- floor shadow -->
+          <ellipse cx="120" cy="256" rx="66" ry="10" fill="rgba(55,50,90,0.12)"/>
+
+          <!-- neck (extends up under chin and down into torso so no gap on float) -->
+          <path d="M106 132 L106 172 Q120 182 134 172 L134 132 Z" fill="url(#skin)"/>
+          <path d="M106 150 Q120 160 134 150" fill="rgba(55,50,90,0.10)"/>
+
+          <!-- body: sloped shoulders + curved torso -->
+          <g>
+            <path d="M58 258
+                     C58 214 62 194 78 180
+                     C89 170 99 166 110 164
+                     C114 174 126 174 130 164
+                     C141 166 151 170 162 180
+                     C178 194 182 214 182 258 Z" fill="url(#kurta)"/>
+            <!-- dupatta draped over left shoulder -->
+            <path d="M58 258
+                     C58 214 62 194 78 180
+                     C89 170 99 166 110 164
+                     C114 176 120 210 110 258 Z" fill="url(#dupatta)" opacity="0.92"/>
+            <path d="M110 165 C120 200 122 230 120 258" stroke="rgba(55,50,90,0.14)" stroke-width="2" fill="none"/>
+            <!-- soft side shading for waist curve -->
+            <path d="M58 258 C58 220 62 200 74 186 C70 210 68 236 72 258 Z" fill="rgba(55,50,90,0.06)"/>
+            <path d="M182 258 C182 220 178 200 166 186 C170 210 172 236 168 258 Z" fill="rgba(55,50,90,0.06)"/>
+            <!-- necklace on the scoop neckline -->
+            <path d="M108 168 Q120 186 132 168" fill="none" stroke="#D2CB95" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="120" cy="183" r="3.4" fill="#D2CB95"/>
+          </g>
+
+          <!-- waving arm + open hand -->
+          <g class="hand-wave">
+            <!-- sleeve / forearm -->
+            <path d="M168 194 Q190 184 196 166" stroke="url(#kurta)" stroke-width="15" stroke-linecap="round" fill="none"/>
+            <!-- wrist -->
+            <path d="M196 166 L199 158" stroke="url(#skin)" stroke-width="12" stroke-linecap="round"/>
+            <!-- palm + fingers as one natural shape -->
+            <path d="M189 166
+                     Q186 156 189 149
+                     Q191 144 197 145
+                     Q200 141 204 145
+                     Q209 145 210 151
+                     Q214 154 212 160
+                     Q212 168 206 170
+                     Q197 173 189 166 Z" fill="url(#skin)"/>
+            <!-- finger separations -->
+            <path d="M196 146 L196 158" stroke="#CE9A7E" stroke-width="1.4" stroke-linecap="round" opacity="0.55"/>
+            <path d="M203 145 L203 158" stroke="#CE9A7E" stroke-width="1.4" stroke-linecap="round" opacity="0.55"/>
+            <path d="M209 149 L208 159" stroke="#CE9A7E" stroke-width="1.4" stroke-linecap="round" opacity="0.55"/>
+            <!-- thumb -->
+            <path d="M188 162 Q181 161 181 167 Q181 172 187 171" fill="url(#skin)"/>
+          </g>
+
+          <!-- head -->
+          <g class="head-group">
+            <!-- hair back -->
+            <path d="M64 100 C58 48 92 26 120 26 C148 26 182 48 176 100 C176 128 168 144 158 152 L82 152 C72 144 64 128 64 100 Z" fill="url(#hair)"/>
+            <!-- bun -->
+            <circle cx="169" cy="46" r="15" fill="url(#hair)"/>
+            <circle cx="173" cy="41" r="4.5" fill="#D2CB95"/>
+            <circle cx="164" cy="49" r="3" fill="#D5A491"/>
+
+            <!-- ears + jhumka -->
+            <circle cx="66" cy="102" r="8" fill="url(#skin)"/>
+            <circle cx="174" cy="102" r="8" fill="url(#skin)"/>
+            <circle cx="66" cy="114" r="3.4" fill="#D2CB95"/>
+            <path d="M66 117 L66 121" stroke="#D2CB95" stroke-width="1.6"/>
+            <circle cx="174" cy="114" r="3.4" fill="#D2CB95"/>
+            <path d="M174 117 L174 121" stroke="#D2CB95" stroke-width="1.6"/>
+
+            <!-- face -->
+            <ellipse cx="120" cy="98" rx="52" ry="56" fill="url(#skin)"/>
+            <ellipse cx="104" cy="76" rx="30" ry="22" fill="url(#shine)" opacity="0.5"/>
+
+            <!-- bangs -->
+            <path d="M70 92 C68 52 96 36 120 36 C144 36 172 52 170 92 C160 72 150 62 138 60 C142 70 140 76 136 80 C128 64 112 58 98 62 C86 66 76 78 70 92 Z" fill="url(#hair)"/>
+            <path d="M78 66 Q92 50 110 48" stroke="rgba(255,255,255,0.18)" stroke-width="3" fill="none" stroke-linecap="round"/>
+
+            <!-- bindi -->
+            <circle cx="120" cy="70" r="2.6" fill="#B0596B"/>
+
+            <!-- brows -->
+            <path class="brow brow-l" d="M92 82 Q100 77 108 81" stroke="#37325A" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path class="brow brow-r" d="M132 81 Q140 77 148 82" stroke="#37325A" stroke-width="3" fill="none" stroke-linecap="round"/>
+
+            <!-- eyes -->
+            <g>
+              <ellipse cx="100" cy="92" rx="9.5" ry="10.5" fill="#FFF9F0"/>
+              <ellipse cx="140" cy="92" rx="9.5" ry="10.5" fill="#FFF9F0"/>
+              <g class="pupils">
+                <circle cx="101" cy="93" r="5.4" fill="#37325A"/>
+                <circle cx="141" cy="93" r="5.4" fill="#37325A"/>
+                <circle cx="103" cy="91" r="1.8" fill="#FFF"/>
+                <circle cx="143" cy="91" r="1.8" fill="#FFF"/>
+              </g>
+              <!-- eyelids (blink) -->
+              <rect class="eyelid" x="89" y="80" width="22" height="24" rx="10" fill="url(#skin)"/>
+              <rect class="eyelid" x="129" y="80" width="22" height="24" rx="10" fill="url(#skin)"/>
+              <!-- lash lines -->
+              <path d="M90 87 Q100 81 110 87" stroke="#37325A" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.55"/>
+              <path d="M130 87 Q140 81 150 87" stroke="#37325A" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.55"/>
+            </g>
+
+            <!-- nose -->
+            <path d="M119 100 Q117 106 121 108" stroke="#C08A6E" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+
+            <!-- blush -->
+            <ellipse cx="88" cy="108" rx="8" ry="4.5" fill="#D5A491" opacity="0.55"/>
+            <ellipse cx="152" cy="108" rx="8" ry="4.5" fill="#D5A491" opacity="0.55"/>
+
+            <!-- mouth -->
+            <path class="mouth-closed" d="M108 116 Q120 124 132 116" stroke="#A15A5A" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+            <g class="mouth-open">
+              <ellipse cx="120" cy="118" rx="9" ry="7.5" fill="#8E4A4E"/>
+              <path d="M112 115 Q120 111 128 115" stroke="#FFF" stroke-width="2.4" fill="none" opacity="0.9"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+
+      <div class="tutor-name-row">
+        <span class="tutor-name">Vidya</span>
+        <span class="tutor-role">· your tutor</span>
+        <span class="state-chip" id="state-chip">Idle</span>
+      </div>
+    </div>
+
+    <div class="heard-box">
       <div class="panel-label">What I heard</div>
-      <div class="transcript-text empty" id="transcript-text">Start speaking — your words will appear here.</div>
+      <div class="heard-text empty" id="transcript-text">Start speaking — your words will appear here.</div>
     </div>
-    <div class="transcript-box">
-      <div class="panel-label">Tutor says</div>
-      <div class="transcript-text empty" id="ai-text">The tutor's response will appear here.</div>
-    </div>
-    <div class="mic-cards">
-      <div class="mic-card" id="user-card">
-        <div class="avatar user-av">🎙<div class="pulse-ring"></div></div>
-        <div class="avatar-label">ME</div>
-        <div class="waveform">
-          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
-        </div>
-      </div>
-      <div class="mic-card" id="ai-card">
-        <div class="avatar ai-av">🤖<div class="ai-pulse-ring"></div></div>
-        <div class="avatar-label">AI TUTOR</div>
-        <div class="waveform">
-          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
-        </div>
-      </div>
-    </div>
+
     <div class="controls">
       <button class="btn btn-start" id="btn-start" onclick="startListening()" disabled>🎙 Start</button>
       <button class="btn btn-stop"  id="btn-stop"  onclick="stopListening()" disabled>⏹ Stop</button>
       <button class="btn btn-next"  id="btn-next"  onclick="moveOn()" disabled>Next →</button>
     </div>
+
     <div class="status-row">
       <div class="status-dot" id="status-dot"></div>
       <span id="status-text">Not connected. Choose a level to begin.</span>
     </div>
-  </div>
+  </section>
 </main>
 
 <script>
@@ -198,6 +529,42 @@ let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
 let audioContext = null;
+
+// ── Tutor character states ────────────────────────────────────────────────────
+// 'idle' | 'listening' | 'thinking' | 'speaking'  (greeting is independent — the wave)
+function setTutorState(state) {
+  const svg = document.getElementById('tutor-svg');
+  const wasGreeting = svg.classList.contains('greeting');
+  svg.classList.remove('idle', 'listening', 'thinking', 'speaking');
+  svg.classList.add(state);
+  if (wasGreeting) svg.classList.add('greeting');  // don't cut a wave short
+  const chip = document.getElementById('state-chip');
+  chip.className = 'state-chip' + (state !== 'idle' ? ' ' + state : '');
+  chip.textContent = { idle: 'Idle', listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking' }[state];
+}
+
+let hasGreeted = false;
+// Wave once on entry, then tuck the hand away.
+function triggerGreeting() {
+  if (hasGreeted) return;
+  hasGreeted = true;
+  const svg = document.getElementById('tutor-svg');
+  svg.classList.add('greeting');
+  // wave runs 2 × 0.75s = 1.5s, then fade the hand out
+  setTimeout(() => svg.classList.remove('greeting'), 1600);
+}
+
+function setCloudThinking() {
+  const cloud = document.getElementById('ai-cloud');
+  cloud.classList.remove('empty', 'speaking');
+  cloud.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
+}
+function setCloudText(text) {
+  const cloud = document.getElementById('ai-cloud');
+  cloud.classList.remove('empty');
+  cloud.classList.add('speaking');
+  cloud.textContent = text;
+}
 
 // ── Session start ─────────────────────────────────────────────────────────────
 async function startSession(level) {
@@ -237,7 +604,6 @@ function connectWS(sid, level) {
     switch (msg.type) {
 
       case 'next_sentence':
-        // FIX: store sentence data immediately, then render
         if (msg.sentence) sentences[msg.index] = msg.sentence;
         currentIndex = msg.index;
         renderSentence(msg.index);
@@ -245,22 +611,25 @@ function connectWS(sid, level) {
         updateProgress(msg.index);
         document.getElementById('btn-start').disabled = false;
         document.getElementById('btn-next').disabled = false;
+        setTutorState('idle');
+        triggerGreeting();   // wave hello once on the first sentence
         setStatus('connected', 'Session ready. Click Start and read the sentence aloud.');
         break;
 
-      case 'transcript':
+      case 'transcript': {
         const tel = document.getElementById('transcript-text');
         tel.textContent = msg.text;
         tel.classList.remove('empty');
-        setStatus('processing', 'Tutor is thinking...');
+        setTutorState('thinking');
+        setCloudThinking();
+        setStatus('processing', 'Vidya is thinking...');
         break;
+      }
 
       case 'ai_text':
-        const ael = document.getElementById('ai-text');
-        ael.textContent = msg.text;
-        ael.classList.remove('empty');
-        setAISpeaking(true);
-        setStatus('processing', 'Tutor is speaking...');
+        setCloudText(msg.text);
+        setTutorState('speaking');
+        setStatus('processing', 'Vidya is speaking...');
         break;
 
       case 'ai_audio':
@@ -269,12 +638,15 @@ function connectWS(sid, level) {
 
       case 'session_complete':
         setStatus('connected', '🎉 All sentences complete! Great work.');
+        setTutorState('idle');
+        document.getElementById('tutor-svg').classList.add('greeting');
         document.getElementById('btn-next').disabled = true;
         document.getElementById('btn-start').disabled = true;
         break;
 
       case 'error':
         console.error('[WS error]', msg.message);
+        setTutorState('idle');
         setStatus('', `Error: ${msg.message}`);
         break;
     }
@@ -286,21 +658,19 @@ function connectWS(sid, level) {
 
 // ── Karaoke rendering ─────────────────────────────────────────────────────────
 function renderSentence(index) {
-  if (renderedIndices.includes(index)) return;  // already rendered
+  if (renderedIndices.includes(index)) return;
 
   const s = sentences[index];
   if (!s) return;
 
   const list = document.getElementById('sentence-list');
-
-  // Clear placeholder on first render
   if (renderedIndices.length === 0) list.innerHTML = '';
 
   const item = document.createElement('div');
   item.className = 'sentence-item';
   item.id = `sentence-${index}`;
   item.innerHTML = `
-    <div class="sentence-num">${index + 1}</div>
+    <div class="sentence-num"><span>${index + 1}</span></div>
     <div class="skt-text">${s.sanskrit}</div>
     <div class="translit">${s.transliteration}</div>
     <div class="sentence-meta">${s.meaning_en}</div>
@@ -318,7 +688,6 @@ function highlightActive(activeIndex) {
     else if (i < activeIndex) el.classList.add('done');
   });
 
-  // Scroll active into view
   const active = document.getElementById(`sentence-${activeIndex}`);
   if (active) setTimeout(() => active.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
 }
@@ -327,9 +696,10 @@ function updateProgress(index) {
   const total = Object.keys(sentences).length || 5;
   document.getElementById('progress-fill').style.width =
     `${Math.round((index / Math.max(total, 1)) * 100)}%`;
+  document.getElementById('progress-count').textContent = `${index + 1} / ${Math.max(total, index + 1)}`;
 }
 
-// ── Recording — FIX: send as WAV via AudioContext ─────────────────────────────
+// ── Recording — webm → PCM → WAV → base64 over WS ────────────────────────────
 async function startListening() {
   if (!audioContext) audioContext = new AudioContext({ sampleRate: 16000 });
   if (audioContext.state === 'suspended') await audioContext.resume();
@@ -339,7 +709,6 @@ async function startListening() {
   }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    // Use webm for recording (broadest browser support)
     mediaRecorder = new MediaRecorder(stream);
     audioChunks = [];
     isRecording = true;
@@ -347,10 +716,10 @@ async function startListening() {
     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
 
     mediaRecorder.onstop = async () => {
-      setUserSpeaking(false);
+      document.getElementById('btn-start').classList.remove('recording');
       setStatus('processing', 'Converting audio...');
+      setTutorState('thinking');
       try {
-        // Decode webm → PCM → re-encode as WAV, then send
         const blob = new Blob(audioChunks, { type: 'audio/webm' });
         const arrayBuffer = await blob.arrayBuffer();
         if (!audioContext) audioContext = new AudioContext({ sampleRate: 16000 });
@@ -361,14 +730,15 @@ async function startListening() {
         setStatus('processing', 'Processing your speech...');
       } catch (e) {
         console.error('Audio conversion error:', e);
+        setTutorState('idle');
         setStatus('', 'Audio conversion failed — try again.');
       }
-      // Stop all tracks
       stream.getTracks().forEach(t => t.stop());
     };
 
     mediaRecorder.start();
-    setUserSpeaking(true);
+    setTutorState('listening');
+    document.getElementById('btn-start').classList.add('recording');
     setStatus('listening', 'Listening — speak now...');
     document.getElementById('btn-start').disabled = true;
     document.getElementById('btn-stop').disabled = false;
@@ -431,7 +801,7 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-// ── Audio playback — FIX: handle WAV from Sarvam ─────────────────────────────
+// ── Audio playback ────────────────────────────────────────────────────────────
 async function playBase64Audio(b64) {
   try {
     const binary = atob(b64);
@@ -439,7 +809,6 @@ async function playBase64Audio(b64) {
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
     if (!audioContext) audioContext = new AudioContext();
-    // Resume context if suspended (autoplay policy)
     if (audioContext.state === 'suspended') await audioContext.resume();
 
     const buffer = await audioContext.decodeAudioData(bytes.buffer.slice(0));
@@ -448,14 +817,13 @@ async function playBase64Audio(b64) {
     source.connect(audioContext.destination);
     source.start(0);
     source.onended = () => {
-      setAISpeaking(false);
+      setTutorState('idle');
       setStatus('connected', 'Your turn — speak or ask a question.');
     };
   } catch (e) {
     console.warn('[Audio] Playback failed:', e);
-    // Still show text even if audio fails
-    setAISpeaking(false);
-    setStatus('connected', 'Audio playback failed — but you can read the tutor reply above.');
+    setTutorState('idle');
+    setStatus('connected', 'Audio playback failed — but you can read the reply above.');
   }
 }
 
@@ -466,22 +834,24 @@ function setStatus(type, text) {
   document.getElementById('status-text').textContent = text;
 }
 
-function setUserSpeaking(v) { document.getElementById('user-card').classList.toggle('speaking', v); }
-function setAISpeaking(v)   { document.getElementById('ai-card').classList.toggle('ai-speaking', v); }
-
 function goHome() {
   if (ws) ws.close();
   ws = null; sessionId = null; sentences = {}; currentIndex = 0; renderedIndices = [];
   document.getElementById('sentence-list').innerHTML =
-    '<div style="color:var(--muted);font-size:14px;padding:12px 0;">Choose a level to begin.</div>';
-  document.getElementById('transcript-text').textContent = 'Start speaking — your words will appear here.';
-  document.getElementById('transcript-text').className = 'transcript-text empty';
-  document.getElementById('ai-text').textContent = "The tutor's response will appear here.";
-  document.getElementById('ai-text').className = 'transcript-text empty';
+    '<div class="placeholder">Choose a level to begin.</div>';
+  const tel = document.getElementById('transcript-text');
+  tel.textContent = 'Start speaking — your words will appear here.';
+  tel.className = 'heard-text empty';
+  const cloud = document.getElementById('ai-cloud');
+  cloud.textContent = "The tutor's reply appears here — namaste, ready when you are.";
+  cloud.className = 'cloud empty';
   document.getElementById('progress-fill').style.width = '0%';
+  document.getElementById('progress-count').textContent = '0 / 0';
   document.getElementById('btn-start').disabled = true;
   document.getElementById('btn-stop').disabled = true;
   document.getElementById('btn-next').disabled = true;
+  setTutorState('idle');
+  document.getElementById('tutor-svg').classList.add('greeting');
   setStatus('', 'Not connected. Choose a level to begin.');
   document.getElementById('landing').style.display = 'flex';
 }
