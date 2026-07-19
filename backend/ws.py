@@ -24,7 +24,14 @@ from data.sentences import get_sentences, Level
 import stt, tts, orchestrator
 
 router = APIRouter(tags=["websocket"])
+import re
+_PAREN = re.compile(r"\([^)]*\)")
 
+def _spoken_only(text: str) -> str:
+    """Strip English (parenthetical) glosses before TTS.
+    The tutor speaks Hindi only; the English still shows on screen via ai_text.
+    Roughly halves synthesis length → noticeably faster audio."""
+    return _PAREN.sub("", text).strip()
 
 @router.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
@@ -42,10 +49,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         await websocket.send_text(json.dumps(payload))
 
     async def speak(text: str, lang: str = "hi-IN"):
-        """Convert text to speech and send audio + text to client."""
-        await send({"type": "ai_text", "text": text})
+        await send({"type": "ai_text", "text": text})          # full text on screen
+        spoken = _spoken_only(text)
+        if not spoken:
+            return
         try:
-            audio_bytes = await tts.synthesize(text, language_code=lang)
+            audio_bytes = await tts.synthesize(spoken, language_code=lang)
             audio_b64 = base64.b64encode(audio_bytes).decode()
             await send({"type": "ai_audio", "data": audio_b64})
         except Exception as e:
