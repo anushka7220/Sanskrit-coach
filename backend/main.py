@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from config import get_settings
 import session, ws
-
+import pathlib
 app = FastAPI(
     title="Sanskrit AI Tutor",
     description="Real-time Sanskrit learning assistant powered by Sarvam AI",
@@ -24,3 +24,4 @@ app.include_router(ws.router)
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "sanskrit-ai-tutor"}
+
