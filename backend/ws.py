@@ -470,7 +470,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 # drain. 2s is conservative; safety responses are ~7-11s
                 # spoken, and we'd rather the beep arrives a beat late than
                 # cuts her off.
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(15.0)
                 await safety.alert_team_async(
                     meta["safety"], session_id=session_id,
                     student=student, transcript=user_text)
