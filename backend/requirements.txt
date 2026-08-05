@@ -1,0 +1,26 @@
+# Sanskrit Coach — backend dependencies
+# Built by scanning every .py import, not guessing.
+
+# Web framework + server
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+websockets>=13.0
+
+# HTTP client (LLM calls, Sarvam REST fallback)
+httpx>=0.27.0
+
+# LLM
+google-genai>=1.0.0
+
+# STT + TTS (Sarvam)
+sarvamai>=0.1.20
+
+# TTS (ElevenLabs)
+elevenlabs>=2.0.0
+
+# Config (.env loading)
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Already in stdlib, listed for clarity: asyncio, base64, json, re,
+# threading, uuid, time, platform, shutil, subprocess, pathlib, typing

@@ -35,10 +35,33 @@ Response envelope: {"type": "data"|"events"|"error", "data": {...}}
 Two traps, both the same shape as the TTS ones:
   - `vad_signals` and `flush_signal` take the STRING "true", not a bool.
   - `sample_rate` is a STRING on connect, but an INT on transcribe().
+
+RECONNECT STRATEGY
+------------------
+Sarvam closes the socket with 1011 (internal error / keepalive ping timeout)
+in two situations:
+  1. The socket was idle too long (student not speaking, tutor is playing audio
+     back — no PCM being fed, so Sarvam sees a dead connection).
+  2. The session hit the server-side max duration (~5 min).
+
+Three defences, applied in order:
+
+  a. Silence keepalive — send 100ms of silence frames every ~3 seconds while
+     the tutor is speaking. Keeps the TCP connection warm and prevents idle
+     timeout. Call stt.keep_alive() from your ws.py tutor-playback loop.
+
+  b. Proactive reconnect — at SESSION_MAX_SECONDS (4.5 min) we reconnect
+     before Sarvam forces it. This covers the duration limit without waiting
+     for an error.
+
+  c. Reactive reconnect — if feed() gets a 1011/1006/keepalive error anyway
+     (e.g. a genuine network hiccup), we tear down the dead socket, open a
+     fresh one, and retry the current chunk once. The student never notices.
 """
 
 import asyncio
 import base64
+import struct
 import time
 from typing import AsyncIterator, Optional
 
@@ -100,6 +123,17 @@ HIGH_VAD_SENSITIVITY: Optional[str] = "false"
 # the tutor cuts off students who pause to think mid-sentence.
 NEGATIVE_FRAMES_COUNT: Optional[str] = None
 
+# Proactive reconnect before Sarvam's server-side session limit.
+# Set to 4.5 min so we reconnect cleanly before the ~5 min hard cutoff.
+_SESSION_MAX_SECONDS = 270
+
+# 100ms of silence at 16kHz = 1600 samples × 2 bytes (signed 16-bit LE).
+# Used by keep_alive() to prevent idle-timeout while the tutor is speaking.
+_SILENCE_FRAME = struct.pack("<" + "h" * 1600, *([0] * 1600))
+
+# Error substrings that indicate a dead socket worth reconnecting.
+_RECONNECT_SIGNALS = ("1011", "1006", "keepalive", "ping timeout", "connection closed")
+
 
 class SarvamSTTStream:
     """One socket per SESSION. Not per turn — that's the whole point.
@@ -109,6 +143,7 @@ class SarvamSTTStream:
         await stt.open()
         asyncio.create_task(consume(stt.events()))
         await stt.feed(pcm_bytes)     # called continuously from the ws loop
+        await stt.keep_alive()        # call every ~3s while tutor is speaking
         ...
         await stt.close()
     """
@@ -122,6 +157,8 @@ class SarvamSTTStream:
         self._queue: asyncio.Queue = asyncio.Queue()
         self._closed = False
         self.speaking = False        # True between START_SPEECH and END_SPEECH
+        self._session_start = 0.0
+        self._reconnecting = False   # guard against concurrent reconnects
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
@@ -148,12 +185,53 @@ class SarvamSTTStream:
 
         self._cm = self._client.speech_to_text_streaming.connect(**kwargs)
         self._ws = await self._cm.__aenter__()
+        self._session_start = time.perf_counter()
 
         self._reader = asyncio.create_task(self._read_loop())
         print(f"[STT] socket ready in {int((time.perf_counter()-t0)*1000)}ms "
               f"(model={STT_MODEL} mode={STT_MODE} "
               f"vol_thresh={START_SPEECH_VOLUME_THRESHOLD}dB "
               f"interrupt_frames={INTERRUPT_MIN_SPEECH_FRAMES})")
+
+    async def _reconnect(self):
+        """Tear down the dead socket and open a fresh one.
+
+        Sets _reconnecting to block concurrent reconnect attempts — if two
+        feed() calls race on the same dead socket we only want one reconnect.
+        """
+        if self._reconnecting:
+            # Another coroutine is already reconnecting; wait for it to finish.
+            while self._reconnecting:
+                await asyncio.sleep(0.05)
+            return
+
+        self._reconnecting = True
+        print("[STT] reconnecting...")
+        try:
+            if self._reader:
+                self._reader.cancel()
+                try:
+                    await self._reader
+                except (asyncio.CancelledError, Exception):
+                    pass
+                self._reader = None
+
+            if self._cm:
+                try:
+                    await self._cm.__aexit__(None, None, None)
+                except Exception:
+                    pass
+                self._cm = None
+                self._ws = None
+
+            self._closed = False
+            await self.open()
+            print("[STT] reconnected")
+        except Exception as e:
+            print(f"[STT] reconnect failed: {e}")
+            await self._queue.put({"type": "error", "message": f"reconnect failed: {e}"})
+        finally:
+            self._reconnecting = False
 
     async def close(self):
         if self._closed:
@@ -178,9 +256,21 @@ class SarvamSTTStream:
     # ── Audio in ─────────────────────────────────────────────────────────
 
     async def feed(self, pcm: bytes):
-        """Push one chunk of raw 16-bit PCM. Safe to call continuously."""
+        """Push one chunk of raw 16-bit PCM. Safe to call continuously.
+
+        Handles three failure modes transparently:
+          - Proactive reconnect when the session is near its max age.
+          - Reactive reconnect on 1011/1006/keepalive errors.
+          - One retry on the current chunk after a successful reconnect.
+        """
         if self._closed or not self._ws or not pcm:
             return
+
+        # (b) Proactive reconnect — before Sarvam forces a 1011.
+        if time.perf_counter() - self._session_start > _SESSION_MAX_SECONDS:
+            print("[STT] proactive reconnect (session age limit)")
+            await self._reconnect()
+
         try:
             await self._ws.transcribe(
                 audio=base64.b64encode(pcm).decode("ascii"),
@@ -192,10 +282,37 @@ class SarvamSTTStream:
                 sample_rate=SAMPLE_RATE,     # INT here, unlike connect()
             )
         except Exception as e:
-            # A dead socket must not kill the websocket handler. Surface it as
-            # an event so the caller can fall back to the batch path.
+            err = str(e).lower()
             print(f"[STT] feed failed: {e}")
-            await self._queue.put({"type": "error", "message": str(e)})
+
+            # (c) Reactive reconnect on dead-socket errors.
+            if any(sig in err for sig in _RECONNECT_SIGNALS):
+                try:
+                    await self._reconnect()
+                    # Retry the chunk that failed — student shouldn't lose audio.
+                    await self._ws.transcribe(
+                        audio=base64.b64encode(pcm).decode("ascii"),
+                        sample_rate=SAMPLE_RATE,
+                    )
+                except Exception as e2:
+                    print(f"[STT] retry after reconnect failed: {e2}")
+                    await self._queue.put({"type": "error", "message": str(e2)})
+            else:
+                await self._queue.put({"type": "error", "message": str(e)})
+
+    async def keep_alive(self):
+        """Send a silence frame to prevent idle-timeout while tutor is speaking.
+
+        Call this from your ws.py playback loop every ~3 seconds:
+
+            while tutor_is_playing:
+                await asyncio.sleep(3)
+                await stt.keep_alive()
+
+        100ms of silence is enough to reset the server's idle timer without
+        triggering VAD or affecting transcription quality.
+        """
+        await self.feed(_SILENCE_FRAME)
 
     async def flush(self):
         """Force the server to finalise whatever audio it is holding.

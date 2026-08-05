@@ -203,7 +203,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             })
         await send({"type": "audio_end", "turn_id": turn_id})
 
-    async def _speak_stream(token_iter: AsyncIterator[str], turn_id: str, marks: dict):
+    async def _speak_stream(token_iter: AsyncIterator[str], turn_id: str, marks: dict,
+                            calm: bool = False):
         """Run one streamed utterance end to end. Raises on socket failure so
         the caller can fall back to REST.
 
@@ -214,20 +215,25 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         await stream.open()
         pump = asyncio.create_task(_pump_audio(stream, turn_id, marks))
         try:
-            await tts.pipe_text_to_tts(token_iter, stream)
+            await tts.pipe_text_to_tts(token_iter, stream, calm=calm)
             await asyncio.wait_for(pump, timeout=AUDIO_DRAIN_TIMEOUT)
         finally:
             if not pump.done():
                 pump.cancel()
             await stream.close()
 
-    async def speak(text: str):
-        """Fixed strings — greetings, praise, sentence announcements."""
+    async def speak(text: str, calm: bool = True):
+        """Fixed strings — greetings, praise, sentence announcements.
+
+        calm defaults True: these are scripted lines and should be delivered
+        steadily. The excited question/praise modulation is for the LLM's own
+        replies, not for "अगला वाक्य" every single time.
+        """
         turn_id = uuid.uuid4().hex
         await send({"type": "turn_start", "turn_id": turn_id})
         await send({"type": "ai_text", "turn_id": turn_id, "text": text})
         try:
-            await _speak_stream(tts.single_shot(text), turn_id, {})
+            await _speak_stream(tts.single_shot(text), turn_id, {}, calm=calm)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -454,14 +460,21 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             meta = await run_turn(user_text, current, t_input)
 
             if meta.get("safety"):
-                # Alerted here rather than inside the orchestrator so it fires
-                # once per turn, with the session and student attached.
+                # Alert AFTER run_turn returns — at that point _speak_stream
+                # has finished and all audio chunks have been sent to the
+                # client. The old placement fired the alert while Vidya was
+                # still speaking, the beep came through the speakers, the mic
+                # heard it, VAD fired, and Vidya barge-in'd herself.
+                #
+                # A small extra delay lets the client's MediaSource buffer
+                # drain. 2s is conservative; safety responses are ~7-11s
+                # spoken, and we'd rather the beep arrives a beat late than
+                # cuts her off.
+                await asyncio.sleep(2.0)
                 await safety.alert_team_async(
                     meta["safety"], session_id=session_id,
                     student=student, transcript=user_text)
-                # Deliberately no advance, no idle nudge. The lesson stops.
-                # Chirping "कुछ और पूछना चाहती हैं?" fourteen seconds after
-                # this would be grotesque.
+                # No advance, no idle nudge. The lesson stops.
                 return
 
             if meta.get("change_level"):
@@ -481,6 +494,13 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         if not sentences:
             await send({"type": "error",
                         "message": "Session not initialised. Send 'init' first."})
+            return
+        # After the last sentence, sentence_index == len(sentences) and a turn
+        # here would crash on sentences[sentence_index]. This happens when the
+        # student speaks after session_complete — the endpoint timer can still
+        # fire if speech overlapped the completion message.
+        if sentence_index >= len(sentences):
+            print(f"[turn] ignoring — session already complete (index={sentence_index})")
             return
         await cancel_turn()
         await _cancel_idle()

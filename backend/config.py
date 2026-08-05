@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     gemini_api_key: str
     sarvam_api_key: str
     supabase_url: str
+    elevenlabs_api_key: str 
     supabase_anon_key: str
     sarvam_base_url: str = "https://api.sarvam.ai"
 

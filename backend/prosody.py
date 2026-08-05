@@ -25,7 +25,8 @@ THE THREE FIXES
 2. PAUSES
    A comma is the only pause instruction available. The model writes long
    clauses without them, so we insert them where a teacher would breathe:
-   after an opening discourse marker, and around a quoted Sanskrit phrase.
+   after an opening discourse marker, around a quoted Sanskrit phrase, and
+   after mid-sentence setup clauses like यानी / मतलब / इसलिए.
 
 3. TONE PER SENTENCE
    `pace` can be changed mid-turn — the SDK docstring is explicit that a new
@@ -36,17 +37,32 @@ THE THREE FIXES
 
 import re
 
-# ── Pace per kind of sentence ─────────────────────────────────────────────────
-# Deliberately a narrow band. Below ~0.8 she sounds sedated; above ~1.05 she
-# sounds like she's rushing you out of the room. The differences want to be
-# felt, not noticed.
-PACE = {
-    "default":    0.92,
-    "question":   0.95,   # slightly brisker; the rise carries the intent
-    "correction": 0.86,   # slow. being told you're wrong needs room
-    "praise":     1.00,   # brisk and light
-    "sanskrit":   0.80,   # slowest. every syllable has to be hearable
+# ── Voice modulation per kind of sentence ─────────────────────────────────────
+# (speed, stability, style).
+#
+# Tuned for a calm, grounded friend — not a radio presenter.
+#
+#   question   : slightly quicker, stability pulled up so pitch moves but
+#                doesn't wobble; style kept modest
+#   correction : slowest, highest stability — steady and kind, not dramatic
+#   praise     : pulled way back — warm but flat, never gushing or excited
+#                style 0.18 (was 0.38) is the key change; kills the exclamation
+#                energy that made her sound like a game show host
+#   calm       : scripted lines (greeting, transition, announcements) —
+#                high stability, low style so they never sound theatrical
+VOICE = {
+    "default":    (0.90, 0.55, 0.20),
+    "question":   (0.93, 0.50, 0.35),
+    "correction": (0.84, 0.72, 0.10),
+    "praise":     (0.90, 0.58, 0.18),
+    "calm":       (0.88, 0.68, 0.12),
 }
+
+# ── Fillers ───────────────────────────────────────────────────────────────────
+# Disabled — LLM prompt now controls voice character. Prosody fillers caused
+# double openers and clashed with the "no filler at sentence start" rule.
+_FILLERS_BY_KIND = {}
+_THINKING_FILLER = "हम्म, "   # kept for reference, not used
 
 # Question words. Presence of any of these makes a sentence interrogative
 # regardless of how it was punctuated.
@@ -59,13 +75,20 @@ _Q_TAIL = ["ना", "ठीक है", "है ना", "हैं ना", "�
 _CORRECTION_MARKERS = [
     "नहीं", "गलत", "फिर से", "दोबारा", "ध्यान", "not quite", "try again",
 ]
+
+# Praise markers — kept minimal. "सही है" removed because it matched too many
+# normal sentences and caused over-excited delivery on plain statements.
 _PRAISE_MARKERS = [
-    "बहुत बढ़िया", "शाबाश", "बिल्कुल सही", "सही है", "अच्छा किया", "excellent",
+    "बिल्कुल सही", "अच्छा किया", "excellent",
 ]
 
-# Openers a teacher pauses after. Written without the comma because the model
-# often omits it — that's the whole point.
+# Openers a teacher pauses after (sentence-initial).
 _OPENERS = ["तो", "अच्छा", "देखिए", "हाँ तो", "ठीक है", "सुनिए", "अब"]
+
+# Mid-sentence setup clauses that deserve a breath after them.
+# e.g. "राम वन जाते हैं यानी वे घर छोड़ देते हैं।"
+#   → "राम वन जाते हैं यानी, वे घर छोड़ देते हैं।"
+_MID_PAUSE_MARKERS = ["जैसे कि", "यानी", "मतलब", "इसलिए", "क्योंकि"]
 
 _DEVANAGARI = re.compile(r"[\u0900-\u097F]")
 
@@ -77,7 +100,7 @@ def _has(text: str, needles: list[str]) -> bool:
 def is_question(text: str) -> bool:
     """True if this should be spoken with a rising contour.
 
-    Note it does NOT rely on a '?' already being present — that's the bug it
+    Does NOT rely on a '?' already being present — that's the bug it
     exists to fix.
     """
     t = text.strip()
@@ -86,10 +109,8 @@ def is_question(text: str) -> bool:
     if _has(t, _Q_WORDS):
         return True
     # Tag questions: "...चलें।", "...है ना।"
-    #
-    # The tail alone is not one. "ठीक है।" is a statement meaning "fine";
-    # "आपको समझ आया, ठीक है।" is a question. So the tail has to be attached to
-    # something, not be the whole sentence.
+    # The tail alone is not enough — "ठीक है।" is a statement; it only
+    # becomes interrogative when attached to something longer.
     stripped = t.rstrip("।.!? ")
     for tail in _Q_TAIL:
         if stripped.endswith(tail) and len(stripped) > len(tail) + 2:
@@ -97,32 +118,50 @@ def is_question(text: str) -> bool:
     return False
 
 
-def shape(text: str) -> tuple[str, float]:
-    """Return (text to speak, pace to speak it at).
+def classify(text: str) -> str:
+    """One of: praise | correction | question | default."""
+    if _has(text, _PRAISE_MARKERS):
+        return "praise"
+    if _has(text, _CORRECTION_MARKERS):
+        return "correction"
+    if is_question(text):
+        return "question"
+    return "default"
 
-    Pure and cheap — string work on one chunk. It runs between the sentence
-    chunker and the socket, so it costs nothing measurable.
+
+def shape(text: str, is_first_chunk: bool = False,
+          force_kind: str | None = None) -> tuple[str, tuple[float, float, float]]:
+    """Return (text to speak, (speed, stability, style)).
+
+    `force_kind` overrides classification — used for scripted lines (greeting,
+    transitions) that should always be delivered calm, regardless of whether
+    they happen to contain a question mark or a praise word.
     """
     t = text.strip()
     if not t:
-        return t, PACE["default"]
+        return t, VOICE["default"]
+
+    kind = force_kind or classify(t)
+
+    # ── 0. Pre-pause before corrections ──────────────────────────────────
+    # A real teacher pauses before "नहीं" — the silence signals something's
+    # coming. A leading comma gives TTS that small breath.
+    if kind == "correction" and not t.startswith(","):
+        t = ", " + t
 
     # ── 1. Question punctuation ──────────────────────────────────────────
     if is_question(t):
-        # A danda or full stop at the end of a question flattens the contour.
         t = re.sub(r"[।\.]+\s*$", "?", t)
         if not t.endswith("?"):
             t += "?"
 
     # ── 2. Pauses ────────────────────────────────────────────────────────
-    # A quoted Sanskrit phrase needs air on both sides, or it runs into the
-    # Hindi around it and stops being hearable as a separate thing.
-    has_quote = "'" in t
-    t = re.sub(r"\s*'([^']+)'\s*", r", '\1', ", t)
 
-    # Comma after an opening marker, if the model didn't write one — but not
-    # when a quote is already going to add pauses a few words later. Three
-    # pauses in the first four words reads as hesitant, not deliberate.
+    # 2a. Sanskrit / quoted phrases — space before, comma after
+    has_quote = "'" in t
+    t = re.sub(r"\s*'([^']+)'\s*", r" '\1', ", t)
+
+    # 2b. Sentence-initial openers
     if not has_quote:
         for op in _OPENERS:
             if t.startswith(op) and not t[len(op):].lstrip().startswith(","):
@@ -131,28 +170,21 @@ def shape(text: str) -> tuple[str, float]:
                     t = f"{op}, {rest}"
                 break
 
-    t = re.sub(r"\s*,\s*,\s*", ", ", t)       # collapse doubles we just made
-    t = re.sub(r",\s*([।\.\?!])", r"\1", t)   # no comma right before an end mark
-    t = re.sub(r"^\s*,\s*", "", t)            # never open on a comma
+    # 2c. Mid-sentence setup clauses (यानी, मतलब, इसलिए, …)
+    for marker in _MID_PAUSE_MARKERS:
+        # Add comma after marker only when one isn't already there
+        t = re.sub(rf"({re.escape(marker)})\s+(?!,)", rf"\1, ", t)
+
+    # 2d. Cleanup: collapse double commas, strip comma before terminal punct
+    t = re.sub(r"\s*,\s*,\s*", ", ", t)
+    t = re.sub(r",\s*([।\.\?!])", r"\1", t)
+    t = re.sub(r"^\s*,\s*", "", t)       # strip leading comma left by cleanup
     t = re.sub(r"\s+", " ", t).strip()
 
-    # ── 3. Pace ──────────────────────────────────────────────────────────
-    if _has(t, _PRAISE_MARKERS):
-        pace = PACE["praise"]
-    elif _has(t, _CORRECTION_MARKERS):
-        pace = PACE["correction"]
-    elif is_question(t):
-        pace = PACE["question"]
-    else:
-        pace = PACE["default"]
+    # ── 3. Filler ────────────────────────────────────────────────────────
+    # Disabled — LLM prompt handles voice character. Prosody fillers caused
+    # double openers and clashed with the no-filler-at-sentence-start rule.
+    # if is_first_chunk and kind in _FILLERS_BY_KIND:
+    #     ...
 
-    # NOTE: there was a script-ratio check here that slowed any mostly-
-    # Devanagari chunk to `sanskrit` pace, on the theory that it was the
-    # Sanskrit line being read out. It was wrong: Hindi is Devanagari too, so
-    # it fired on almost every sentence and flattened all four paces into one.
-    #
-    # Script can't separate Hindi from Sanskrit. If you want the Sanskrit line
-    # itself read slowly, pass PACE["sanskrit"] explicitly from the caller that
-    # already knows it's announcing a sentence — don't try to infer it here.
-
-    return t, pace
+    return t, VOICE[kind]

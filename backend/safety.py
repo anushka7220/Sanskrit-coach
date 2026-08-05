@@ -9,8 +9,9 @@ don't say to people, and some of those things need a human, quickly.
 
 So this module does three narrow jobs:
   1. Notice when a conversation has moved somewhere unsafe.
-  2. Say something warm, short, and NOT advice, that points at a real person.
-  3. Tell the team.
+  2. Say something warm, unhurried, and NOT advice, that points at a real person.
+  3. Tell the team — but only AFTER the response has finished playing, so the
+     alert sound doesn't cut the student off mid-sentence.
 
 DESIGN DECISION: THE REPLY IS NOT GENERATED
 -------------------------------------------
@@ -26,6 +27,32 @@ wrong is expensive.
 
 It also removes latency and any chance of a provider failure at the worst
 possible moment.
+
+RESPONSE TONE (teens, 13-17, calm caring teacher, Hinglish)
+------------------------------------------------------------
+Rules every response must follow:
+  - Acknowledge first. Never jump to a number.
+  - No advice, no medical suggestions, no "try this".
+  - Never name a method. Never ask for more detail.
+  - One specific resource at the end, not a list.
+  - Warm but not dramatic — a teacher who quietly takes you seriously.
+  - Short enough to hold attention when someone is distressed.
+  - Spoken aloud, so no symbols, no markdown.
+
+ALERT TIMING
+------------
+alert_team / alert_team_async should be called AFTER the TTS response finishes
+playing — not before, not during. This ensures the alert sound doesn't bleed
+into the student's audio experience at the worst possible moment.
+
+Pattern in ws.py:
+
+    safe_text = safety.response_for(category)
+    await pipe_text_to_tts(single_shot(safe_text), tts_stream, calm=True)
+    await tts_stream.finish()
+    # wait for audio queue to drain before alerting
+    await tts_stream.audio_out.join()
+    await safety.alert_team_async(category, session_id, student, transcript)
 
 WHAT THIS IS NOT
 ----------------
@@ -106,36 +133,51 @@ _COMPILED = [
 
 
 # ── Responses ─────────────────────────────────────────────────────────────────
-# Rules these are written to, and that any edit must keep:
-#   - No advice. Not medical, not psychological, not "try this".
-#   - Never name a method, and never ask for detail. Asking a distressed
-#     student to elaborate to a tutor keeps them talking to the wrong listener.
-#   - Point at a specific, reachable human or number.
-#   - Short. This is spoken aloud, and length dilutes it.
-#   - Warm, and honest about what she is: not equipped for this.
+# Written for teens (13-17). Calm caring teacher. Hinglish.
 #
-# Numbers are Indian national services. Verify them before you ship, and
-# localise if your students aren't in India.
-#   112   — all-emergency
-#   14416 — Tele-MANAS, government mental health support
+# Structure of every response:
+#   1. Acknowledge — "I heard you, this matters"
+#   2. Be honest about what she is — a tutor, not a counsellor
+#   3. One warm, specific action — a person or a number
+#
+# Numbers are Indian national services. Verify before shipping.
+#   112   — all-emergency (police/ambulance)
+#   14416 — Tele-MANAS, free government mental health helpline
 #   1098  — Childline, for anyone under 18
 
 RESPONSES: dict[str, str] = {
     "self_harm": (
-        "मैं यहीं रुक रही हूँ। मैं एक tutor हूँ, इसमें आपकी सही मदद नहीं कर सकती। "
-        "अभी किसी भरोसेमंद इंसान से बात कीजिए, या Tele-MANAS — one four four one six."
+        "Ruko, ek second. "
+        "Jo tumne abhi share kiya, woh sunke mujhe tumhari bahut chinta ho rahi hai. "
+        "Yeh feelings bahut heavy hoti hain, aur tum akele nahi ho isme. "
+        "Main ek tutor hoon, main theek se help nahi kar sakti is waqt, "
+        "lekin koi hai jo kar sakta hai. "
+        "Abhi apne ghar mein kisi bade se baat karo, ya Tele-MANAS pe call karo, "
+        "number hai one four four one six. "
+        "Woh sun'te hain, bina judge kiye."
     ),
     "medical_emergency": (
-        "मैं tutor हूँ, doctor नहीं। "
-        "अभी किसी बड़े को बुलाइए या one one two पर call कीजिए, देर मत कीजिए।"
+        "Ruko, yeh serious hai. "
+        "Main tutor hoon, doctor nahi, isliye please abhi kisi bade ko bulao "
+        "ya one one two pe call karo. "
+        "Jitna jaldi ho sake, please."
     ),
     "abuse_or_danger": (
-        "अच्छा किया जो आपने बताया। यह मेरे बस की बात नहीं है। "
-        "किसी भरोसेमंद बड़े से बात कीजिए, या Childline — one zero nine eight."
+        "Tumne yeh bataya, yeh bahut himmat ki baat hai. "
+        "Main sach mein sunna chahti thi, aur main samajhti hoon yeh easy nahi tha. "
+        "Yeh situation meri capacity se bahar hai, lekin iska matlab yeh nahi "
+        "ki koi help nahi kar sakta. "
+        "Ghar mein koi bhi trusted adult hai, teacher, relative, koi bhi, "
+        "unse aaj baat karo. "
+        "Ya Childline pe call kar sakte ho, number hai one zero nine eight. "
+        "Woh 24 ghante available hain."
     ),
     "harm_to_others": (
-        "मैं यहाँ रुक रही हूँ, इसमें मैं मदद नहीं कर सकती। "
-        "आज ही किसी भरोसेमंद बड़े से बात कीजिए। ख़तरा हो तो one one two."
+        "Ruko. Jo tumne abhi kaha, woh mujhe sun'na tha. "
+        "Main Sanskrit padha sakti hoon, lekin is cheez mein tumhari sahi help "
+        "karna mera kaam nahi hai. "
+        "Kisi bhi trusted adult se aaj baat karo, please. "
+        "Agar koi serious danger lag raha hai, to one one two pe call karo."
     ),
 }
 
@@ -170,15 +212,15 @@ def response_for(category: str) -> str:
 
 
 # ── Alerting ──────────────────────────────────────────────────────────────────
+# IMPORTANT: alert_team / alert_team_async must be called AFTER the TTS audio
+# has finished playing. This ensures the alert sound doesn't bleed into what
+# the student hears. See the module docstring for the ws.py pattern.
 
 # How insistent the audible alert is.
 #
 # One system sound is about a second — long enough to notice if you happen to
 # be looking at the terminal, and easy to miss if you aren't. An alert you can
 # miss isn't doing its job, so it repeats.
-#
-# Raise ALERT_REPEATS if you work with the terminal in the background; lower it
-# if it's more annoying than useful during development.
 ALERT_REPEATS = 15
 ALERT_GAP_SECONDS = 0.45
 
@@ -246,6 +288,8 @@ def alert_team(category: str, session_id: str = "?", student: Optional[dict] = N
                transcript: str = "") -> None:
     """Log the incident and make a noise. Never raises.
 
+    Call this AFTER TTS audio has finished playing — see module docstring.
+
     Synchronous and fast by design — it's called from an async path and must
     not be something a turn can await or fail on. Sound playback is spawned,
     not waited for.
@@ -276,6 +320,15 @@ def alert_team(category: str, session_id: str = "?", student: Optional[dict] = N
 
 async def alert_team_async(*args, **kwargs) -> None:
     """Off-thread wrapper, so printing and process spawning can't stall the
-    event loop while audio is still streaming to other parts of the app."""
+    event loop while audio is still streaming to other parts of the app.
+
+    MUST be called after TTS audio drains. Recommended pattern in ws.py:
+
+        safe_text = safety.response_for(category)
+        await pipe_text_to_tts(single_shot(safe_text), tts_stream, calm=True)
+        await tts_stream.finish()
+        await tts_stream.audio_out.join()   # wait for audio queue to empty
+        await safety.alert_team_async(category, session_id, student, transcript)
+    """
     await asyncio.get_running_loop().run_in_executor(
         None, lambda: alert_team(*args, **kwargs))

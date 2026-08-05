@@ -1,330 +1,259 @@
 """
-Sarvam TTS — streaming (WebSocket) with a REST fallback.
+TTS layer — ElevenLabs streaming.
 
-Two ways to synthesize:
+DROP-IN REPLACEMENT FOR tts_sarvam.py
+-------------------------------------
+The public surface is identical:
 
-  1. SarvamTTSStream  — persistent WebSocket, one instance per assistant turn.
-                        Text goes in progressively, PCM audio comes back
-                        progressively. This is the low-latency path.
+    SarvamTTSStream  → ElevenLabsTTSStream   (same interface)
+    pipe_text_to_tts → unchanged
+    single_shot      → unchanged
+    synthesize       → unchanged
+    SpokenTextFilter → unchanged
 
-  2. synthesize()     — the old REST call. Kept as a safety net so a demo
-                        never goes silent if the socket fails.
+ws.py imports `tts.SarvamTTSStream` by name, so the class is aliased at the
+bottom: `SarvamTTSStream = ElevenLabsTTSStream`. Nothing else needs to change.
 
-Audio format note
------------------
-The streaming socket supports **MP3 only** — the SDK docstring for
-`output_audio_codec` says so explicitly, and sending "pcm" returns a 422
-from the server. So chunks arrive as MP3 frames and the browser decodes
-each one with `decodeAudioData` before scheduling it.
+WHY THIS IS SIMPLER
+-------------------
+Sarvam required: open a websocket → configure() → send text chunks → read
+audio messages → watch for a 'final' event → handle ErrorResponse. Five
+failure modes, three of which were string-vs-bool traps in the SDK.
 
-This costs a decode step per chunk versus raw PCM, but it's what the API
-allows. The client still schedules decoded buffers on an explicit timeline,
-so playback stays gapless and remains cancellable for barge-in.
+ElevenLabs: call convert() with text, iterate the AsyncIterator[bytes].
+That's it. The SDK does all the HTTP/SSE work internally. No socket to manage,
+no configure, no completion events.
 
-The REST fallback returns a self-describing WAV, so the client needs
-handlers for both message types.
+VOICE / MODEL SELECTION
+-----------------------
+Model: eleven_flash_v2_5  — lowest latency, Hindi supported, <75ms TTFB.
+       eleven_multilingual_v2 — better quality, higher latency.
 
-Docs: https://docs.sarvam.ai/api-reference-docs/api-guides-tutorials/text-to-speech/streaming-api/web-socket
+Voice: pick a voice_id from the ElevenLabs voice library.
+
+API key: set ELEVENLABS_API_KEY in your .env file.
 """
 
 import asyncio
 import base64
+import re
 import time
 from typing import AsyncIterator, Optional
 
-import httpx
+from elevenlabs import AsyncElevenLabs
+from elevenlabs.types import VoiceSettings
 
 from config import get_settings
 import prosody
 
-# ── Voice / model config ──────────────────────────────────────────────────
-TTS_MODEL = "bulbul:v3"
-TTS_SPEAKER = "ishita"
-TTS_LANGUAGE = "hi-IN"
-TTS_PACE = 0.9
+# ── Voice / model config ──────────────────────────────────────────────────────
 
-# Pronunciation dictionary ID. bulbul:v3 only.
+# eleven_flash_v2_5: fastest, <75ms TTFB, Hindi supported.
+# eleven_multilingual_v2: highest quality, ~2-3x slower.
+TTS_MODEL = "eleven_flash_v2_5"
+
+# Output format. Must match the client's MediaSource codec.
+# mp3_24000_48 = MP3 at 24kHz, 48kbps.
+TTS_OUTPUT_FORMAT = "mp3_24000_48"
+
+# Pick from the ElevenLabs voice library. Replace with the voice_id you chose.
+TTS_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"   # "Sarah" — warm, clear female
+
+# Hindi. ElevenLabs auto-detects, but pinning avoids occasional misdetect
+# on short Hinglish phrases.
+TTS_LANGUAGE = "hi"
+
+# Voice tuning knobs.
 #
-# This is the single biggest remaining quality lever and it is currently
-# unused. TTS guesses at Sanskrit — गच्छति, पठति, बालकः — because they aren't
-# Hindi words, and no amount of pace or punctuation shaping fixes a
-# mispronounced word. A dictionary is the only thing that does.
-#
-# Build one with client.pronunciation_dictionary (see the SDK), add the
-# Sanskrit vocabulary from data/sentences.py, and put its ID here.
-TTS_DICT_ID: str | None = None
+# stability: 0.0-1.0. Lower = more expressive. Higher = more consistent.
+# similarity_boost: 0.0-1.0. How closely to match the original voice sample.
+# style: 0.0-1.0. Expressiveness. Keep low for a tutor.
+# speed: 0.5-2.0. Same concept as Sarvam's pace.
+DEFAULT_VOICE_SETTINGS = VoiceSettings(
+    stability=0.5,
+    similarity_boost=0.75,
+    style=0.3,
+    speed=0.92,
+)
 
-# bulbul:v3's native sample rate. Supported values: 8000, 16000, 22050, 24000.
-SAMPLE_RATE = 24000
+# Text normalization: 'auto', 'on', 'off'.
+TTS_TEXT_NORMALIZATION = "on"
 
-# MP3 bitrate for streamed chunks. Higher = better quality, more bandwidth.
-MP3_BITRATE = "128k"
+# ── Client ────────────────────────────────────────────────────────────────────
 
-# Sarvam's server-side buffer. Valid range 30–200. Low = lower time-to-first-
-# audio, at the cost of slightly less prosodic context per synthesis unit.
-MIN_BUFFER_SIZE = 30
-MAX_CHUNK_LENGTH = 120
-
-# REST-only: Sarvam rejects requests over this length with a 400.
-MAX_TTS_CHARS = 2500
+_client: Optional[AsyncElevenLabs] = None
 
 
-# ══════════════════════════════════════════════════════════════════════════
-#  Streaming TTS
-# ══════════════════════════════════════════════════════════════════════════
-
-class SarvamTTSStream:
-    """One instance per assistant turn. Owns a Sarvam TTS WebSocket.
-
-    Usage:
-        tts = SarvamTTSStream()
-        await tts.open()
-        # ... consumer task drains tts.audio_out ...
-        await tts.say("नमस्ते!")
-        await tts.say("आज हम एक वाक्य पढ़ेंगे।")
-        await tts.finish()          # flush — server will emit the 'final' event
-        await tts.close()
-
-    audio_out yields raw PCM byte chunks, then a single None sentinel when
-    synthesis is complete (or has failed).
-    """
-
-    def __init__(
-        self,
-        speaker: str = TTS_SPEAKER,
-        language: str = TTS_LANGUAGE,
-        pace: float = TTS_PACE,
-    ):
-        settings = get_settings()
-        self.speaker = speaker
-        self.language = language
-        self.pace = pace
-        self.audio_out: asyncio.Queue = asyncio.Queue()
-
-        # Imported lazily so a missing `sarvamai` install surfaces as a clean
-        # error at turn time (and falls back to REST) rather than at import.
-        from sarvamai import AsyncSarvamAI
-
-        self._client = AsyncSarvamAI(api_subscription_key=settings.sarvam_api_key)
-        self._cm = None
-        self._ws = None
-        self._reader: Optional[asyncio.Task] = None
-        self._closed = False
-
-    async def open(self):
-        # A fresh websocket + configure() handshake runs on every single turn,
-        # so its cost is a floor under time-to-first-audio that no model change
-        # can touch. Measure it before optimising anything upstream.
-        t_open = time.perf_counter()
-
-        # NOTE: send_completion_event takes the STRING 'true', not a bool.
-        # Passing True means the 'final' event never fires and the reader
-        # loop hangs until timeout.
-        self._cm = self._client.text_to_speech_streaming.connect(
-            model=TTS_MODEL,
-            send_completion_event="true",
+def _get_client() -> AsyncElevenLabs:
+    global _client
+    if _client is None:
+        _client = AsyncElevenLabs(
+            api_key=get_settings().elevenlabs_api_key,
         )
-        self._ws = await self._cm.__aenter__()
-
-        try:
-            await self._ws.configure(
-                target_language_code=self.language,
-                speaker=self.speaker,
-                pace=self.pace,
-                speech_sample_rate=SAMPLE_RATE,
-                min_buffer_size=MIN_BUFFER_SIZE,
-                max_chunk_length=MAX_CHUNK_LENGTH,
-                # Normalises English words and numeric entities. This text is
-                # Hinglish with digits in it — helpline numbers, sentence
-                # counts — and without this they get read as raw characters.
-                # The REST fallback already set it; the socket didn't, so the
-                # two paths sounded different.
-                enable_preprocessing=True,
-                dict_id=TTS_DICT_ID,
-                # MP3 ONLY. The SDK docstring is explicit: "currently supports
-                # MP3 only". Sending "pcm" gets a 422 from the server. This is
-                # why the client can't use a raw-PCM scheduler.
-                output_audio_codec="mp3",
-                output_audio_bitrate=MP3_BITRATE,
-            )
-        except TypeError as e:
-            # SDK version doesn't accept one of these kwargs. Don't silently
-            # fall back to a different codec — the client scheduler assumes
-            # PCM. Bail so the caller uses the REST path instead.
-            await self.close()
-            raise RuntimeError(
-                f"[TTS] configure() rejected a parameter ({e}). "
-                f"Upgrade the sarvamai SDK, or drop to a raw websockets client."
-            ) from e
-
-        self._reader = asyncio.create_task(self._read_loop())
-        print(f"[TTS] socket ready in {int((time.perf_counter()-t_open)*1000)}ms")
-
-    async def _read_loop(self):
-        from sarvamai import AudioOutput, EventResponse, ErrorResponse
-
-        first = True
-        try:
-            async for msg in self._ws:
-                if first:
-                    # One-time shape check. Delete once streaming is confirmed.
-                    print(f"[TTS] first msg type={type(msg).__name__}")
-                    first = False
-                if isinstance(msg, AudioOutput):
-                    await self.audio_out.put(base64.b64decode(msg.data.audio))
-                elif isinstance(msg, ErrorResponse):
-                    # Sarvam-side error (bad speaker, bad codec, etc). Without
-                    # this branch it's silently ignored and you get n/a audio
-                    # with no clue why.
-                    print(f"[TTS] server error: {getattr(msg, 'data', msg)}")
-                    break
-                elif isinstance(msg, EventResponse):
-                    if getattr(msg.data, "event_type", None) == "final":
-                        break
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            print(f"[TTS] reader loop ended: {e}")
-        finally:
-            await self.audio_out.put(None)
-
-    async def set_pace(self, pace: float):
-        """Change delivery speed mid-utterance.
-
-        The SDK docstring is explicit that a config message can be sent at any
-        point in the socket's life, and that it flushes whatever is buffered
-        before applying. That's exactly what we want at a chunk boundary — the
-        previous sentence finishes at its own pace, the next one starts at the
-        new one.
-
-        Nothing else in this app used that. It's the only way to vary delivery
-        within a turn, since bulbul has no SSML.
-        """
-        if abs(pace - self.pace) < 0.02:
-            return          # not worth a round trip
-        self.pace = pace
-        try:
-            await self._ws.configure(
-                target_language_code=self.language,
-                speaker=self.speaker,
-                pace=pace,
-                speech_sample_rate=SAMPLE_RATE,
-                min_buffer_size=MIN_BUFFER_SIZE,
-                max_chunk_length=MAX_CHUNK_LENGTH,
-                # A config update REPLACES the config — omitting these here
-                # would silently reset preprocessing and the dictionary the
-                # moment the pace changed mid-sentence.
-                enable_preprocessing=True,
-                dict_id=TTS_DICT_ID,
-                output_audio_codec="mp3",
-                output_audio_bitrate=MP3_BITRATE,
-            )
-        except Exception as e:
-            # Delivery is a nicety; losing the turn over it is not acceptable.
-            print(f"[TTS] pace change ignored: {e}")
-
-    async def say(self, text: str):
-        """Push a speakable chunk. Returns as soon as it's sent — audio comes
-        back asynchronously on audio_out."""
-        if text.strip():
-            await self._ws.convert(text)
-
-    async def finish(self):
-        """Flush the server buffer. Triggers the 'final' completion event."""
-        await self._ws.flush()
-
-    async def close(self):
-        if self._closed:
-            return
-        self._closed = True
-        if self._reader and not self._reader.done():
-            self._reader.cancel()
-        if self._cm is not None:
-            try:
-                await self._cm.__aexit__(None, None, None)
-            except Exception:
-                pass
+    return _client
 
 
-# ══════════════════════════════════════════════════════════════════════════
-#  Text shaping — what actually gets spoken, and in what size pieces
-# ══════════════════════════════════════════════════════════════════════════
+def _settings_for(speed: float, stability: float, style: float) -> VoiceSettings:
+    """Full per-chunk voice settings.
+
+    ElevenLabs modulation is stability + style, not just speed:
+      stability  low  = more expressive, varied intonation
+                 high = flatter, more consistent
+      style      high = more emotional/dramatic delivery
+
+    A question wants lower stability so the pitch actually rises. A correction
+    wants higher stability so it lands as calm and clear, not theatrical.
+    That's real voice modulation — the thing Sarvam's single `pace` knob
+    couldn't do.
+    """
+    return VoiceSettings(
+        stability=stability,
+        similarity_boost=DEFAULT_VOICE_SETTINGS.similarity_boost,
+        style=style,
+        speed=speed,
+    )
+
+
+# ── Spoken-text filter ────────────────────────────────────────────────────────
 
 class SpokenTextFilter:
-    """Strips '(English gloss)' spans from a *token stream*.
+    """Strip parenthetical English glosses so only the spoken part reaches TTS.
 
-    Your old regex version couldn't survive streaming — an opening paren and
-    its closer routinely arrive in different tokens. This tracks depth
-    character by character across the whole stream, so the tutor speaks Hindi
-    only while the full text still renders on screen.
+    LLM writes: "राम वन जाते हैं। (Ram goes to the forest.)"
+    TTS should say: "राम वन जाते हैं।"
+    """
+
+    _PAREN = re.compile(r"\s*\([^)]*\)")
+
+    def __init__(self):
+        self._buf = ""
+
+    def feed(self, text: str) -> str:
+        self._buf += text
+        out = self._PAREN.sub("", self._buf)
+        idx = self._buf.rfind("(")
+        if idx != -1 and ")" not in self._buf[idx:]:
+            clean = self._PAREN.sub("", self._buf[:idx])
+            self._buf = self._buf[idx:]
+            return clean
+        self._buf = ""
+        return out
+
+
+# ── Streaming TTS class ──────────────────────────────────────────────────────
+
+class ElevenLabsTTSStream:
+    """One instance per turn.
+
+    Interface is identical to the Sarvam version so ws.py doesn't change:
+        stream = ElevenLabsTTSStream()
+        await stream.open()
+        stream.audio_out             # asyncio.Queue of bytes | None
+        await stream.say(text)
+        await stream.finish()
+        await stream.close()
     """
 
     def __init__(self):
-        self._depth = 0
+        self.audio_out: asyncio.Queue = asyncio.Queue()
+        self._closed = False
+        self._voice = (DEFAULT_VOICE_SETTINGS.speed, DEFAULT_VOICE_SETTINGS.stability, DEFAULT_VOICE_SETTINGS.style)
+        # Chunks are synthesised strictly in order. The previous design fired
+        # each say() as an independent task, so several HTTP requests raced and
+        # whichever returned first got queued first — that's why line two
+        # sometimes played before line one, and why boundaries clicked. A
+        # single worker draining a queue guarantees order.
+        self._work: asyncio.Queue = asyncio.Queue()
+        self._worker: Optional[asyncio.Task] = None
 
-    def feed(self, text: str) -> str:
-        out = []
-        for ch in text:
-            if ch == "(":
-                self._depth += 1
-            elif ch == ")":
-                if self._depth:
-                    self._depth -= 1
-            elif self._depth == 0:
-                out.append(ch)
-        return "".join(out)
+    async def open(self):
+        """Warm the HTTP connection pool and start the ordered worker."""
+        t0 = time.perf_counter()
+        try:
+            _get_client()
+        except Exception as e:
+            print(f"[TTS] client init failed: {e}")
+        self._worker = asyncio.create_task(self._run_worker())
+        print(f"[TTS] ready in {int((time.perf_counter() - t0) * 1000)}ms")
+
+    async def _run_worker(self):
+        """Pull queued items and synthesise them one at a time, in order.
+
+        Tracks the previous chunk's text and hands it to the next call as
+        `previous_text`. That's the fix for choppy boundaries: ElevenLabs uses
+        it to keep intonation continuous across chunks instead of restarting
+        the contour cold each time, which is what made it sound cut-cut."""
+        prev_text = ""
+        while True:
+            item = await self._work.get()
+            if item is None:
+                break
+            text, voice = item
+            if not self._closed:
+                await self._stream_chunk(text, voice, prev_text)
+                prev_text = text
+        await self.audio_out.put(None)
+
+    async def set_voice(self, settings: tuple[float, float, float]):
+        """Set (speed, stability, style) for the next say()."""
+        self._voice = settings
+
+    async def say(self, text: str):
+        """Queue one chunk for synthesis. The worker speaks them in order."""
+        if self._closed or not text.strip():
+            return
+        await self._work.put((text, self._voice))
+
+    async def _stream_chunk(self, text: str, voice: tuple, prev_text: str = ""):
+        first = True
+        speed, stability, style = voice
+        try:
+            client = _get_client()
+            settings = _settings_for(speed, stability, style)
+            async for chunk in client.text_to_speech.convert(
+                voice_id=TTS_VOICE_ID,
+                text=text,
+                model_id=TTS_MODEL,
+                output_format=TTS_OUTPUT_FORMAT,
+                language_code=TTS_LANGUAGE,
+                voice_settings=settings,
+                apply_text_normalization=TTS_TEXT_NORMALIZATION,
+                # Continuity across chunk boundaries — stops the choppy restart.
+                previous_text=prev_text or None,
+            ):
+                if chunk and not self._closed:
+                    if first:
+                        first = False
+                        print(f"[TTS] first msg (speed={speed:.2f})")
+                    await self.audio_out.put(chunk)
+        except Exception as e:
+            print(f"[TTS] chunk synthesis failed: {e}")
+
+    async def finish(self):
+        """Signal no more chunks; the worker drains what's queued, in order."""
+        await self._work.put(None)
+
+    async def close(self):
+        """Stop the worker and unblock the reader."""
+        self._closed = True
+        if self._worker and not self._worker.done():
+            await self._work.put(None)
+            try:
+                await asyncio.wait_for(self._worker, timeout=5)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                self._worker.cancel()
+        try:
+            self.audio_out.put_nowait(None)
+        except asyncio.QueueFull:
+            pass
 
 
-# Devanagari danda first — Gemini uses it constantly when writing Hindi, and
-# a chunker without it will simply never fire on a Devanagari-only reply.
-_HARD = "।.?!\n"
-_SOFT = ",;:—"
-
-# Chunk sizes ramp up, and the first value is NOT arbitrary — it matches
-# MIN_BUFFER_SIZE.
-#
-# It used to be 12. That bought nothing: the server buffers until
-# MIN_BUFFER_SIZE characters have arrived before it synthesises anything, so a
-# 12-character chunk just sat there waiting for the next one. We paid for it
-# twice — no latency saved, and bulbul got a fragment of a clause to build an
-# intonation contour from, which is why the opening words always sounded
-# flattest.
-#
-# Prosody needs a whole phrase. If you lower MIN_BUFFER_SIZE, lower this with
-# it; below the server's threshold the chunk is invisible.
-_CHUNK_RAMP = [MIN_BUFFER_SIZE, 60, 100]
+# ── Alias for ws.py compatibility ─────────────────────────────────────────────
+SarvamTTSStream = ElevenLabsTTSStream
 
 
-def _min_len_for(idx: int) -> int:
-    return _CHUNK_RAMP[min(idx, len(_CHUNK_RAMP) - 1)]
+# ── Sentence chunker + prosody ────────────────────────────────────────────────
 
-
-# If the model writes a long run with no punctuation at all, the chunker would
-# otherwise hold everything until the stream ends and the whole streaming win
-# evaporates. Past this length, cut at the last space instead.
-_FORCE_CUT = 180
-
-
-def _find_cut(buf: str, min_len: int, chars: str) -> Optional[int]:
-    for i, ch in enumerate(buf):
-        if i + 1 >= min_len and ch in chars:
-            return i + 1
-
-    # Punctuation never arrived — fall back to a word boundary.
-    if len(buf) >= _FORCE_CUT:
-        space = buf.rfind(" ", 0, _FORCE_CUT)
-        return space + 1 if space > min_len else _FORCE_CUT
-    return None
-
-
-import re
-
-# Sarvam rejects any chunk that contains no character from a supported
-# language: "Text must contain at least one character from the allowed
-# languages." An aggressive first cut can easily produce a chunk that is pure
-# punctuation, digits or whitespace — and because one bad chunk kills the whole
-# socket, that costs the entire turn. Length alone is not a safe cut criterion;
-# the chunk has to actually contain a letter.
 _SPEAKABLE = re.compile(r"[\u0900-\u097FA-Za-z]")
 
 
@@ -332,15 +261,44 @@ def _is_speakable(text: str) -> bool:
     return bool(_SPEAKABLE.search(text))
 
 
-async def pipe_text_to_tts(token_iter: AsyncIterator[str], tts: SarvamTTSStream):
-    """Consume LLM tokens, cut them into speakable chunks, feed the socket.
+_HARD = "।.?!\n"
+_SOFT = ",;:—"
 
-    Applies SpokenTextFilter internally, so pass raw tokens — the caller can
-    still forward the unfiltered text to the UI.
+MIN_BUFFER_SIZE = 30
+MAX_CHUNK_LENGTH = 120
+
+_CHUNK_RAMP = [MIN_BUFFER_SIZE, 60, 100]
+
+
+def _min_len_for(idx: int) -> int:
+    return _CHUNK_RAMP[min(idx, len(_CHUNK_RAMP) - 1)]
+
+
+_FORCE_CUT = 180
+
+
+def _find_cut(buf: str, min_len: int, chars: str) -> Optional[int]:
+    for i, ch in enumerate(buf):
+        if i + 1 >= min_len and ch in chars:
+            return i + 1
+    if len(buf) >= _FORCE_CUT:
+        space = buf.rfind(" ", 0, _FORCE_CUT)
+        return space + 1 if space > min_len else _FORCE_CUT
+    return None
+
+
+async def pipe_text_to_tts(token_iter: AsyncIterator[str], tts_stream: ElevenLabsTTSStream,
+                           calm: bool = False):
+    """Accumulate tokens into sentence-sized chunks, shape them, and speak.
+
+    `calm=True` forces the steady scripted-line delivery — used for greetings,
+    the classroom transition, and announcements, which should never come out
+    with the excited intonation a question or praise word would trigger.
     """
     spoken = SpokenTextFilter()
     buf = ""
     idx = 0
+    force = "calm" if calm else None
 
     async for token in token_iter:
         buf += spoken.feed(token)
@@ -357,80 +315,43 @@ async def pipe_text_to_tts(token_iter: AsyncIterator[str], tts: SarvamTTSStream)
             if not piece:
                 continue
             if not _is_speakable(piece):
-                # Punctuation-only fragment. Don't send it and don't drop it —
-                # glue it onto the next chunk so nothing is lost from the reply.
                 buf = piece + buf
                 break
-            # Shape punctuation and pick a pace for THIS sentence. Both are
-            # deterministic string work — no model call, no latency.
-            spoken_text, pace = prosody.shape(piece)
-            await tts.set_pace(pace)
-            await tts.say(spoken_text)
+            # Fillers only on real explanations, never on scripted calm lines.
+            spoken_text, voice = prosody.shape(
+                piece, is_first_chunk=(idx == 0 and not calm), force_kind=force)
+            await tts_stream.set_voice(voice)
+            await tts_stream.say(spoken_text)
             idx += 1
 
     tail = buf.strip()
     if tail and _is_speakable(tail):
-        spoken_text, pace = prosody.shape(tail)
-        await tts.set_pace(pace)
-        await tts.say(spoken_text)
+        spoken_text, voice = prosody.shape(
+            tail, is_first_chunk=(idx == 0 and not calm), force_kind=force)
+        await tts_stream.set_voice(voice)
+        await tts_stream.say(spoken_text)
 
-    await tts.finish()
+    await tts_stream.finish()
 
 
 async def single_shot(text: str) -> AsyncIterator[str]:
-    """Adapter so fixed strings (greetings, praise) use the same pipeline."""
+    """Wrap a fixed string as a one-token stream for pipe_text_to_tts."""
     yield text
 
 
-# ══════════════════════════════════════════════════════════════════════════
-#  REST fallback
-# ══════════════════════════════════════════════════════════════════════════
-
-def _prepare_tts_text(text: str) -> str:
-    """Trim TTS input to Sarvam's hard limit, cutting at a sentence end."""
-    text = (text or "").strip()
-    if len(text) <= MAX_TTS_CHARS:
-        return text
-
-    clipped = text[:MAX_TTS_CHARS]
-    for sep in ("।", ".", "!", "?", "\n"):
-        i = clipped.rfind(sep)
-        if i > 0:
-            return clipped[: i + 1].strip()
-    return clipped.strip()
-
-
-async def synthesize(text: str, language_code: str = TTS_LANGUAGE) -> bytes:
-    """One-shot REST synthesis. Returns WAV bytes."""
-    settings = get_settings()
-
-    text = _prepare_tts_text(text)
-    if not text:
-        raise ValueError("[TTS] Empty text after preparation — nothing to synthesize")
-
-    payload = {
-        "text": text,
-        "target_language_code": language_code,
-        "speaker": TTS_SPEAKER,
-        "model": TTS_MODEL,
-        "pace": TTS_PACE,
-        "speech_sample_rate": SAMPLE_RATE,
-        "enable_preprocessing": True,
-    }
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            f"{settings.sarvam_base_url}/text-to-speech",
-            headers={
-                "api-subscription-key": settings.sarvam_api_key,
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
-
-    if response.status_code != 200:
-        print(f"[TTS] Raw error: {response.text}")
-        response.raise_for_status()
-
-    data = response.json()
-    return base64.b64decode(data["audios"][0])
+async def synthesize(text: str) -> bytes:
+    """One-shot synthesis returning a complete audio blob. REST fallback."""
+    client = _get_client()
+    chunks = []
+    async for chunk in client.text_to_speech.convert(
+        voice_id=TTS_VOICE_ID,
+        text=text,
+        model_id=TTS_MODEL,
+        output_format=TTS_OUTPUT_FORMAT,
+        language_code=TTS_LANGUAGE,
+        voice_settings=DEFAULT_VOICE_SETTINGS,
+        apply_text_normalization=TTS_TEXT_NORMALIZATION,
+    ):
+        if chunk:
+            chunks.append(chunk)
+    return b"".join(chunks)
