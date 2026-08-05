@@ -706,7 +706,19 @@
 </main>
 
 <script>
-const API_BASE = 'http://localhost:8000';
+/* Production-ready URL detection.
+   On localhost → http://localhost:8000 and ws://localhost:8000
+   On Vercel   → uses the Railway backend URL set below.
+
+   After deploying the backend on Railway, replace YOUR_RAILWAY_URL below
+   with the actual URL Railway gives you (e.g. sanskrit-coach-production.up.railway.app). */
+const RAILWAY_URL = '';  // ← paste your Railway URL here after deploy
+const API_BASE = RAILWAY_URL
+  ? `https://${RAILWAY_URL}`
+  : 'http://localhost:8000';
+const WS_BASE = RAILWAY_URL
+  ? `wss://${RAILWAY_URL}`
+  : 'ws://localhost:8000';
 
 /* The streaming socket emits MP3, not PCM — Sarvam's API supports MP3 only
    on this endpoint. So each chunk gets decoded before scheduling. */
@@ -1324,7 +1336,7 @@ window.addEventListener('pageshow', (e) => {
 
 function connectWS(sid, level) {
   clearTimeout(reconnectTimer);
-  ws = new WebSocket(`ws://localhost:8000/ws/${sid}`);
+  ws = new WebSocket(`${WS_BASE}/ws/${sid}`);
 
   ws.onopen = () => {
     reconnectAttempts = 0;
