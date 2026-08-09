@@ -32,6 +32,7 @@ WHAT CHANGED AND WHY
 import json
 from typing import AsyncIterator, Callable
 
+import asyncio
 import httpx
 
 from config import get_settings
@@ -663,12 +664,32 @@ async def stream_chat(
     because one process serves many sessions at once.
     """
     messages = _build_messages(user_message, history, student)
- 
+
+    # Without these, a provider that accepts the request but then stalls holds
+    # the whole turn open for the underlying HTTP timeout (up to 90s) — the
+    # student sees the tutor freeze for a minute. These cap the wait and let
+    # failover kick in: FIRST_TOKEN_TIMEOUT before anything has streamed (safe
+    # to retry another provider), TOKEN_GAP_TIMEOUT between tokens once it's
+    # flowing (mid-stream stall — truncate rather than double-speak).
+    FIRST_TOKEN_TIMEOUT = 8.0
+    TOKEN_GAP_TIMEOUT = 6.0
+
     for name in PROVIDER_ORDER:
         gen = _PROVIDERS[name](messages)
         emitted = False
         try:
-            async for token in gen:
+            while True:
+                budget = TOKEN_GAP_TIMEOUT if emitted else FIRST_TOKEN_TIMEOUT
+                try:
+                    token = await asyncio.wait_for(gen.__anext__(), timeout=budget)
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    if emitted:
+                        print(f"[LLM] {name} stalled mid-stream after {budget}s — truncating")
+                        return
+                    print(f"[LLM] {name} no first token in {budget}s — trying next")
+                    break
                 if not token:
                     continue
                 emitted = True
