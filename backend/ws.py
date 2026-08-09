@@ -393,6 +393,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
     idle_task: Optional[asyncio.Task] = None
     idle_count = 0
+    # Set by the client's 'playback_finished' message. The idle countdown must
+    # start from when the student stopped HEARING Vidya, not from when the
+    # server finished generating — those differ by seconds on a long reply,
+    # and the gap is exactly when the nudge cut her off mid-sentence.
+    playback_finished_event = asyncio.Event()
 
     async def _cancel_idle():
         nonlocal idle_task
@@ -403,6 +408,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
+        # A stale 'playback_finished' from an interrupted turn must not arm the
+        # next turn's countdown.
+        playback_finished_event.clear()
 
     async def _idle_loop():
         nonlocal idle_count
@@ -418,12 +426,34 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         except asyncio.CancelledError:
             return
 
+    PLAYBACK_FINISHED_TIMEOUT = 30.0   # generous; covers long replies + slow links
+
+    async def _wait_then_idle():
+        # Wait for the client to confirm playback actually ended before the
+        # 14s countdown starts. The timeout is a safety net for a dropped
+        # signal, so the tutor doesn't go silent forever instead of just
+        # occasionally impatient.
+        try:
+            await asyncio.wait_for(playback_finished_event.wait(),
+                                   timeout=PLAYBACK_FINISHED_TIMEOUT)
+        except asyncio.TimeoutError:
+            print("[idle] playback_finished never arrived — starting countdown anyway")
+        except asyncio.CancelledError:
+            return
+        playback_finished_event.clear()
+        await _idle_loop()
+
     def start_idle_timer():
         nonlocal idle_task, idle_count
         if stt_stream is None:
             return          # no mic path — nobody is there to nudge
         idle_count = 0
-        idle_task = asyncio.create_task(_idle_loop())
+        # NOT _idle_loop() directly. run_turn() returning means generation
+        # finished and every chunk was SENT, not that the student finished
+        # HEARING it — MediaSource buffers on the client. Starting the
+        # countdown here raced against playback and fired the nudge
+        # mid-sentence. Wait for the real end-of-playback signal instead.
+        idle_task = asyncio.create_task(_wait_then_idle())
 
     async def apply_level_change(new_level: str):
         """Switch levels mid-session, the way asking a human tutor would."""
@@ -730,6 +760,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             # ── HEARTBEAT ─────────────────────────────────────────────────
             # Cheap liveness proof. Mic traffic only shows the client is alive;
             # this is how the client learns the server still is.
+            if msg_type == "playback_finished":
+                # The client's <audio> element actually stopped. THIS is when
+                # the idle countdown should start, not when run_turn() returned.
+                playback_finished_event.set()
+                continue
+
             if msg_type == "ping":
                 await send({"type": "pong"})
                 continue

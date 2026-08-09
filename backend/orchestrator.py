@@ -292,7 +292,12 @@ async def _stream_checked(prompt: str, history: list[dict],
                 if rest:
                     yield ("token", rest)
             elif len(head) >= _MARKER_SCAN_CHARS:
-                resolved = "RETRY"
+                # No marker in the opening — the model just started talking
+                # instead of classifying. That almost always means the student
+                # said something conversational, not a wrong answer. Defaulting
+                # to RETRY here was trapping people in the loop; OFFTOPIC
+                # releases it and lets the reply through as normal conversation.
+                resolved = "OFFTOPIC"
                 yield ("result", resolved)
                 yield ("token", head)
             continue
@@ -300,7 +305,9 @@ async def _stream_checked(prompt: str, history: list[dict],
 
     if resolved is None:
         match = _RESULT_RE.search(head)
-        resolved = _normalise_result(match.group(1)) if match else "RETRY"
+        # Same reasoning for a short reply that ended before the scan window:
+        # no marker means uncertain, and uncertain should not trap the student.
+        resolved = _normalise_result(match.group(1)) if match else "OFFTOPIC"
         yield ("result", resolved)
         rest = _strip_marker(head) if match else head.strip()
         if rest:
@@ -365,10 +372,15 @@ async def process_turn_stream(
                 result = value
             else:
                 yield {"type": "token", "text": value}
+        # OFFTOPIC means the student wasn't attempting a translation at all —
+        # they said something conversational. Keeping awaiting_translation set
+        # in that case traps them: their normal reply gets graded as a wrong
+        # translation over and over. Only RETRY should keep the loop open.
+        still_waiting = target if result == "RETRY" else False
         yield {
             "type": "meta", "intent": "translate", "move_on": False,
             "awaiting_grammar": False,
-            "awaiting_translation": False if result == "CORRECT" else target,
+            "awaiting_translation": still_waiting,
         }
         return
 
@@ -382,11 +394,20 @@ async def process_turn_stream(
             else:
                 yield {"type": "token", "text": value}
         correct = result == "CORRECT"
-        if correct and level == "hard":
-            yield {"type": "token", "text": " अब अगले वाक्य पर चलते हैं? (Move on?)"}
+        # Same fix as translation: OFFTOPIC (the student was just talking, not
+        # answering the grammar question) must release the loop. Previously
+        # `not correct` kept awaiting_grammar=True on OFFTOPIC, so a plain
+        # remark like "haan notice kiya maine" was rejected as a wrong answer
+        # and the student got stuck on "firse try karo".
+        still_waiting = result == "RETRY"
+        # No "Move on?" line here any more. The orchestrator can't see whether
+        # this is the last sentence, so it would offer to advance past the end
+        # — the student says yes, the session completes, and the tutor is still
+        # mid-offer. Advancement is the Next button / an explicit move_on, both
+        # of which the client now guards once the session is over.
         yield {
             "type": "meta", "intent": "grammar", "move_on": False,
-            "awaiting_grammar": not correct, "awaiting_translation": False,
+            "awaiting_grammar": still_waiting, "awaiting_translation": False,
         }
         return
 
