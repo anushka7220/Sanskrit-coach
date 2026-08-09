@@ -728,6 +728,13 @@ const MIC_SAMPLE_RATE = 16000;
 let ws = null;
 let sessionId = null;
 let currentLevel = 'easy';
+let sessionOver = false;
+let pendingNextLevel = null;
+const LEVEL_ORDER = ['easy', 'intermediate', 'hard'];
+function nextLevel(lvl) {
+  const i = LEVEL_ORDER.indexOf(lvl);
+  return (i >= 0 && i < LEVEL_ORDER.length - 1) ? LEVEL_ORDER[i + 1] : null;
+}
 let studentName = '';
 let studentGender = 'neutral';
 let sentences = {};          // index → sentence object
@@ -817,6 +824,9 @@ function startAudioStream() {
     setTutorState('idle');
     document.getElementById('ai-cloud').classList.remove('speaking');
     setStatus('connected', 'Your turn — speak or ask a question.');
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'playback_finished' }));
+    }
   }, { once: true });
 }
 
@@ -1227,6 +1237,20 @@ function initDemo() {
 // ── Session start ─────────────────────────────────────────────────────────────
 async function startSession(level) {
   deliberateClose = false;
+  sessionOver = false;
+  pendingNextLevel = null;
+  currentIndex = 0;
+  // Wipe the previous level's rendered sentences — a new level arrives via a
+  // fresh session, not level_changed, so nothing else clears these.
+  sentences = {};
+  renderedIndices = [];
+  totalSentences = 0;
+  document.getElementById('sentence-list').innerHTML = '';
+  const _nb = document.getElementById('btn-next');
+  _nb.textContent = 'Next →'; _nb.disabled = true;
+  const _mb = document.getElementById('btn-mic');
+  _mb.textContent = '🎙 Start talking';
+  document.getElementById('tutor-svg').classList.remove('greeting');
   currentLevel = level;
 
   studentName = document.getElementById('student-name').value.trim().slice(0, 40);
@@ -1531,14 +1555,31 @@ function connectWS(sid, level) {
         await playBase64Wav(msg.data);
         break;
 
-      case 'session_complete':
+      case 'session_complete': {
+        sessionOver = true;
         clearSessionState();
-        setStatus('connected', '🎉 All sentences complete! Great work.');
+        if (micOn) stopMic();
         setTutorState('idle');
         document.getElementById('tutor-svg').classList.add('greeting');
-        document.getElementById('btn-next').disabled = true;
         document.getElementById('btn-mic').disabled = true;
+
+        const nxt = nextLevel(currentLevel);
+        const nextBtn = document.getElementById('btn-next');
+        if (nxt) {
+          pendingNextLevel = nxt;
+          nextBtn.disabled = false;
+          nextBtn.textContent = `Start ${nxt.charAt(0).toUpperCase() + nxt.slice(1)} →`;
+          document.getElementById('btn-mic').textContent = '✓ Level complete';
+          setStatus('connected', `Level complete! Ready for ${nxt}? Tap Start ${nxt}.`);
+        } else {
+          pendingNextLevel = null;
+          nextBtn.disabled = true;
+          nextBtn.textContent = 'All done';
+          document.getElementById('btn-mic').textContent = '✓ Course complete';
+          setStatus('connected', '🎉 You finished all three levels. That is the whole course — shabaash!');
+        }
         break;
+      }
 
       case 'error':
         console.error('[WS error]', msg.message);
@@ -1996,6 +2037,14 @@ async function stopMic() {
 }
 
 function moveOn() {
+  if (sessionOver) {
+    if (pendingNextLevel) {
+      const lvl = pendingNextLevel;
+      pendingNextLevel = null;
+      startSession(lvl);
+    }
+    return;
+  }
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'move_on' }));
     setStatus('connected', 'Moving to next sentence...');
@@ -2062,6 +2111,9 @@ async function playBase64Wav(b64) {
       setTutorState('idle');
       document.getElementById('ai-cloud').classList.remove('speaking');
       setStatus('connected', 'Your turn — speak or ask a question.');
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'playback_finished' }));
+      }
     };
   } catch (e) {
     console.warn('[Audio] Playback failed:', e);
