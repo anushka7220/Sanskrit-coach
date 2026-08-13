@@ -1,0 +1,22 @@
+/* tokens.css — extracted from the single-file build.
+   Load order: tokens.css → base.css → components.
+   Do not put :root variables anywhere else; keep them in tokens.css. */
+
+/* Design tokens. Every colour, spacing constant, and radius the app
+   uses lives here as a CSS custom property. Change it in one place,
+   see it everywhere. Anything hard-coded elsewhere is a bug. */
+
+:root {
+  /* palette from your swatch */
+  --sage:   #A5A487;
+  --khaki:  #D2CB95;
+  --cream:  #EFE9D3;
+  --ivory:  #F7F3E6;
+  --rose:   #D5A491;
+  --mauve:  #B08590;
+  --ink:    #37325A;   /* deep plum from the swatch corner */
+  --ink-soft: #6F6A8C;
+  --line:   rgba(55,50,90,0.14);
+  --radius: 18px;
+  --shadow: 0 10px 30px rgba(55,50,90,0.10);
+}

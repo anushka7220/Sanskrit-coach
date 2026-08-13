@@ -1,0 +1,91 @@
+/* app.css — extracted from the single-file build.
+   Load order: tokens.css → base.css → components.
+   Do not put :root variables anywhere else; keep them in tokens.css. */
+
+/* In-session UI: the sentence list (karaoke), the "What I heard"
+   panel, and the control buttons. Everything the student interacts
+   with once a lesson is running. */
+/* ── Sentences (karaoke) ────────────────────────────────── */
+.karaoke-panel {
+  background: var(--ivory); border: 1px solid var(--line); border-radius: var(--radius);
+  display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--shadow);
+  min-height: 420px;
+}
+.karaoke-head { display:flex; align-items:center; justify-content:space-between; padding: 18px 24px 12px; }
+.progress-wrap { display:flex; align-items:center; gap:10px; }
+.progress-count { font-size: 12px; font-weight: 700; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.progress-bar { width: 120px; height: 6px; border-radius: 999px; background: rgba(55,50,90,0.10); overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--sage), var(--khaki), var(--rose), var(--mauve)); transition: width .6s ease; width: 0%; }
+
+.sentence-list { flex: 1; padding: 8px 24px 24px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+.placeholder { color: var(--ink-soft); font-size: 14px; padding: 12px 0; }
+
+.sentence-item {
+  position: relative; padding: 16px 18px 16px 52px; border-radius: 14px;
+  border: 1.5px solid transparent;
+  opacity: 0.45; transition: opacity .5s, transform .4s, background .4s, border-color .4s;
+  transform: translateY(4px);
+}
+.sentence-item.active {
+  opacity: 1; transform: translateY(0);
+  background: var(--cream); border-color: var(--rose);
+  box-shadow: 0 6px 18px rgba(213,164,145,0.25);
+}
+.sentence-item.done { opacity: 0.5; }
+.skt-text { font-family: 'Tiro Devanagari Sanskrit', serif; font-size: 27px; line-height: 1.55; color: var(--ink); margin-bottom: 4px; }
+.sentence-item.done .skt-text { text-decoration: line-through; text-decoration-color: rgba(55,50,90,0.25); text-decoration-thickness: 1px; }
+.translit { font-size: 13px; color: var(--ink-soft); font-style: italic; margin-bottom: 2px; }
+.sentence-meta { font-size: 13px; color: var(--ink-soft); }
+.sentence-num {
+  position: absolute; left: 16px; top: 20px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 50%; font-size: 11px; font-weight: 700;
+  background: rgba(55,50,90,0.10); color: var(--ink-soft);
+}
+.sentence-item.active .sentence-num { background: var(--mauve); color: var(--ivory); }
+.sentence-item.done .sentence-num { background: var(--sage); color: var(--ivory); }
+.sentence-item.done .sentence-num::after { content: '✓'; position: absolute; }
+.sentence-item.done .sentence-num span { visibility: hidden; }
+
+
+/* ── I heard / controls / status ────────────────────────── */
+.heard-box {
+  background: var(--ivory); border: 1px solid var(--line); border-radius: 14px;
+  padding: 14px 16px; box-shadow: var(--shadow);
+}
+.heard-box .panel-label { margin-bottom: 6px; }
+.heard-text { font-size: 14px; line-height: 1.6; color: var(--ink); min-height: 22px; }
+.heard-text.empty { color: var(--ink-soft); font-style: italic; }
+
+.controls { display: flex; gap: 10px; }
+.btn {
+  flex: 1; padding: 14px; border-radius: 13px; border: 1.5px solid transparent;
+  font-size: 14px; font-weight: 700; cursor: pointer; transition: all .2s;
+}
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-start { background: var(--mauve); color: var(--ivory); box-shadow: 0 6px 16px rgba(176,133,144,0.4); }
+.btn-start:hover:not(:disabled) { transform: translateY(-1px); background: #A2757F; }
+.btn-stop { background: transparent; color: var(--ink-soft); border-color: var(--line); }
+.btn-stop:hover:not(:disabled) { border-color: var(--ink-soft); color: var(--ink); }
+.btn-next { background: var(--sage); color: var(--ivory); box-shadow: 0 6px 16px rgba(165,164,135,0.4); }
+.btn-next:hover:not(:disabled) { transform: translateY(-1px); background: #93926F; }
+.btn.recording { animation: recpulse 1.2s ease-in-out infinite; }
+@keyframes recpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(213,164,145,0.5);} 50% { box-shadow: 0 0 0 8px rgba(213,164,145,0);} }
+
+.status-row {
+  display: flex; align-items: center; gap: 9px; padding: 11px 16px;
+  background: var(--ivory); border: 1px solid var(--line); border-radius: 12px;
+  font-size: 13px; color: var(--ink-soft);
+}
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-soft); flex-shrink: 0; }
+.status-dot.connected  { background: #7C9A6D; box-shadow: 0 0 6px #7C9A6D; }
+.status-dot.listening  { background: var(--rose); box-shadow: 0 0 6px var(--rose); animation: blinkdot 1s ease-in-out infinite; }
+.status-dot.processing { background: var(--khaki); box-shadow: 0 0 6px var(--khaki); animation: blinkdot .5s ease-in-out infinite; }
+@keyframes blinkdot { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* latency readout — the number that tells you whether any of this worked */
+.metrics {
+  display: flex; gap: 14px; padding: 8px 16px; font-size: 11.5px;
+  color: var(--ink-soft); font-variant-numeric: tabular-nums;
+}
+.metrics b { font-weight: 700; color: var(--ink); }

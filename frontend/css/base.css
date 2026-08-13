@@ -1,0 +1,55 @@
+/* base.css — extracted from the single-file build.
+   Load order: tokens.css → base.css → components.
+   Do not put :root variables anywhere else; keep them in tokens.css. */
+
+/* Base reset, typography, page shell, header, and grid layout.
+   These rules describe the room the app sits in. Feature styles
+   (sentences, tutor, landing) go in their own files and assume
+   this file is already loaded. */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: 'Karla', sans-serif;
+  background:
+    radial-gradient(1200px 600px at 85% -10%, rgba(213,164,145,0.22), transparent 60%),
+    radial-gradient(900px 500px at -10% 100%, rgba(165,164,135,0.20), transparent 55%),
+    var(--cream);
+  color: var(--ink);
+  min-height: 100vh;
+  display: flex; flex-direction: column;
+}
+button { font-family: 'Karla', sans-serif; }
+:focus-visible { outline: 3px solid var(--mauve); outline-offset: 2px; border-radius: 6px; }
+
+/* ── Header ─────────────────────────────────────────────── */
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 32px; border-bottom: 1px solid var(--line);
+  background: rgba(247,243,230,0.7); backdrop-filter: blur(6px);
+  position: sticky; top: 0; z-index: 20;
+}
+.logo { display: flex; align-items: baseline; gap: 10px; }
+.logo .dev { font-family: 'Tiro Devanagari Sanskrit', serif; font-size: 24px; color: var(--ink); }
+.logo .lat { font-family: 'Fraunces', serif; font-size: 15px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); }
+.level-badges { display: flex; gap: 8px; }
+.badge {
+  padding: 7px 16px; border-radius: 999px; font-size: 13px; font-weight: 700;
+  cursor: pointer; border: 1.5px solid var(--line); background: transparent;
+  color: var(--ink-soft); transition: all .2s;
+}
+.badge:hover { border-color: var(--mauve); color: var(--ink); }
+.badge.active { background: var(--ink); border-color: var(--ink); color: var(--ivory); cursor: default; }
+
+/* ── Layout ─────────────────────────────────────────────── */
+main {
+  flex: 1; display: grid; grid-template-columns: minmax(0,1fr) 420px;
+  gap: 24px; padding: 24px 32px 40px; max-width: 1240px; width: 100%; margin: 0 auto;
+}
+@media (max-width: 960px) {
+  main { grid-template-columns: 1fr; padding: 16px; }
+}
+
+.panel-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-soft);
+}

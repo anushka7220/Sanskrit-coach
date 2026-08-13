@@ -1,0 +1,103 @@
+/* tutor.css — extracted from the single-file build.
+   Load order: tokens.css → base.css → components.
+   Do not put :root variables anywhere else; keep them in tokens.css. */
+
+/* The tutor character: speech cloud, SVG stage, and the state-based
+   animations (idle float, listening tilt, speaking nod, blink, wave).
+   Separated so appearance work doesn't have to scroll past everything
+   else. vidya-style.js also injects CSS at runtime for the ⋯ menu. */
+/* ── Tutor stage ────────────────────────────────────────── */
+.right-panel { display: flex; flex-direction: column; gap: 14px; }
+.tutor-stage {
+  position: relative; background: var(--ivory); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 18px 18px 0; overflow: hidden;
+}
+.tutor-stage::before {
+  content: ''; position: absolute; inset: auto 0 0 0; height: 46%;
+  background: linear-gradient(180deg, transparent, rgba(165,164,135,0.18));
+  pointer-events: none;
+}
+
+/* speech cloud */
+.cloud {
+  position: relative; background: var(--cream); border: 1.5px solid var(--line);
+  border-radius: 16px; padding: 14px 16px; min-height: 64px;
+  font-size: 14px; line-height: 1.65; color: var(--ink);
+  transition: border-color .3s;
+}
+.cloud.empty { color: var(--ink-soft); font-style: italic; }
+.cloud.speaking { border-color: var(--mauve); }
+.cloud::after {
+  content: ''; position: absolute; left: 50%; bottom: -9px; width: 16px; height: 16px;
+  background: var(--cream); border-right: 1.5px solid var(--line); border-bottom: 1.5px solid var(--line);
+  transform: translateX(-50%) rotate(45deg);
+}
+.cloud .dots { display: inline-flex; gap: 4px; }
+.cloud .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-soft); animation: dotpulse 1s ease-in-out infinite; }
+.cloud .dots i:nth-child(2) { animation-delay: .15s; }
+.cloud .dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes dotpulse { 0%,100%{ opacity:.25; transform: translateY(0);} 50%{ opacity:1; transform: translateY(-3px);} }
+
+/* caret that trails the streaming text */
+.cloud .caret {
+  display: inline-block; width: 2px; height: 1em; vertical-align: -2px;
+  background: var(--mauve); margin-left: 2px; animation: caretblink .9s step-end infinite;
+}
+@keyframes caretblink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+/* the tutor character */
+.tutor-figure { display: flex; justify-content: center; padding: 10px 0 0; }
+#tutor-svg { width: 230px; height: auto; display: block; }
+
+.tutor-name-row { display:flex; align-items:center; justify-content:center; gap:8px; padding: 4px 0 14px; position: relative; }
+.tutor-name { font-family: 'Fraunces', serif; font-size: 15px; font-weight: 600; color: var(--ink); }
+.tutor-role { font-size: 12px; color: var(--ink-soft); }
+.state-chip {
+  font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  padding: 3px 10px; border-radius: 999px; background: rgba(55,50,90,0.08); color: var(--ink-soft);
+  transition: all .3s;
+}
+.state-chip.listening { background: rgba(213,164,145,0.35); color: #8C5647; }
+.state-chip.thinking  { background: rgba(210,203,149,0.45); color: #6E682F; }
+.state-chip.speaking  { background: rgba(176,133,144,0.30); color: #7A4A58; }
+
+/* character animation states — fill-box makes transform-origin resolve per-element */
+.head-group { transform-box: fill-box; transform-origin: center bottom; }
+.idle .head-group { animation: headfloat 4.5s ease-in-out infinite; }
+@keyframes headfloat { 0%,100% { transform: translateY(0) rotate(0deg);} 50% { transform: translateY(-3px) rotate(-1deg);} }
+.listening .head-group { animation: headtilt 2.4s ease-in-out infinite; }
+@keyframes headtilt { 0%,100% { transform: rotate(0deg);} 50% { transform: rotate(3.5deg) translateY(-1px);} }
+.speaking .head-group { animation: headnod 1.4s ease-in-out infinite; }
+@keyframes headnod { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-2.5px);} }
+
+.eyelid { transform-box: fill-box; transform-origin: center top; transform: scaleY(0); }
+.idle .eyelid, .speaking .eyelid, .thinking .eyelid { animation: blink 4s infinite; }
+@keyframes blink { 0%, 92%, 100% { transform: scaleY(0);} 95%, 97% { transform: scaleY(1);} }
+.listening .eyelid { animation: none; transform: scaleY(0); }
+
+.pupils { transition: transform .4s; }
+.thinking .pupils { transform: translate(2px,-2.5px); }
+.listening .pupils { transform: translateY(0.5px); }
+
+/* mouth: closed by default, opens + moves while speaking */
+.mouth-closed { opacity: 1; transition: opacity .15s; }
+.mouth-open { opacity: 0; transform-box: fill-box; transform-origin: center top; }
+.speaking .mouth-closed { opacity: 0; }
+.speaking .mouth-open { opacity: 1; animation: talk .28s ease-in-out infinite alternate; }
+@keyframes talk { from { transform: scaleY(0.25);} to { transform: scaleY(1);} }
+
+.brow { transition: transform .3s; }
+.listening .brow-l { transform: translateY(-2px); }
+.listening .brow-r { transform: translateY(-2.5px); }
+.thinking .brow-r { transform: translateY(-2px) rotate(-3deg); }
+
+.aura { opacity: 0; transition: opacity .4s; transform-box: fill-box; transform-origin: center; }
+.listening .aura-rose { opacity: 1; animation: aurapulse 1.6s ease-out infinite; }
+.speaking  .aura-mauve { opacity: 1; animation: aurapulse 1.6s ease-out infinite; }
+@keyframes aurapulse { 0% { transform: scale(0.96); opacity:.8;} 100% { transform: scale(1.06); opacity:0;} }
+
+/* waving arm — hidden by default, plays once when .greeting is present, then fades away */
+.hand-wave { transform-box: fill-box; transform-origin: bottom center; opacity: 0; transition: opacity .5s ease; }
+.greeting .hand-wave { opacity: 1; animation: wavehand 0.75s ease-in-out 2; }
+@keyframes wavehand { 0%,100%{ transform: rotate(0);} 25% { transform: rotate(-16deg);} 75% { transform: rotate(6deg);} }

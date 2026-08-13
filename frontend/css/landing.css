@@ -1,0 +1,161 @@
+/* landing.css — extracted from the single-file build.
+   Load order: tokens.css → base.css → components.
+   Do not put :root variables anywhere else; keep them in tokens.css. */
+
+/* Landing screen: welcome, name gate, level picker, and the demo
+   panel that plays before the student has connected. Loaded on every
+   page but only rendered when #landing is visible. */
+/* ── Landing ────────────────────────────────────────────── */
+#landing {
+  position: fixed; inset: 0; z-index: 100; overflow: auto;
+  background:
+    radial-gradient(900px 460px at 78% -8%, rgba(213,164,145,0.34), transparent 62%),
+    radial-gradient(760px 480px at -5% 108%, rgba(165,164,135,0.30), transparent 58%),
+    radial-gradient(600px 400px at 105% 95%, rgba(176,133,144,0.18), transparent 60%),
+    var(--cream);
+  display: grid; place-items: center; padding: 40px 28px;
+}
+.landing-inner {
+  display: grid; grid-template-columns: minmax(0,1.05fr) minmax(0,0.95fr);
+  gap: clamp(36px, 6vw, 80px); align-items: center;
+  width: min(1060px, 100%);
+}
+/* One column below ~900px: side-by-side would squeeze both halves into
+   unreadable widths, and the demo is the expendable one on a phone. */
+@media (max-width: 900px) {
+  .landing-inner { grid-template-columns: 1fr; gap: 36px; }
+  .landing-demo { order: -1; }
+}
+.landing-left { display: flex; flex-direction: column; gap: 26px; }
+.landing-title { text-align: left; }
+.landing-title .dev {
+  font-family: 'Tiro Devanagari Sanskrit', serif;
+  font-size: clamp(38px, 5vw, 62px); color: var(--ink); line-height: 1.15; display: block;
+}
+.landing-title .sub {
+  font-family: 'Fraunces', serif; font-size: clamp(16px, 2vw, 20px);
+  color: var(--ink); display: block; margin-top: 10px; font-weight: 500;
+}
+.landing-title .tag { font-size: 14px; color: var(--ink-soft); display: block; margin-top: 8px; }
+
+/* Both steps occupy the same grid cell so the panel never changes height
+   mid-transition — otherwise the whole page jumps as step 2 slides in. */
+.step-stack { display: grid; }
+.step { grid-area: 1 / 1; transition: opacity .38s ease, transform .38s ease; }
+.step.is-out-left  { opacity: 0; transform: translateX(-26px); pointer-events: none; }
+.step.is-out-right { opacity: 0; transform: translateX(26px);  pointer-events: none; }
+.step.is-in        { opacity: 1; transform: none; }
+
+.step-head { font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+             color: var(--ink-soft); margin-bottom: 14px; display: flex;
+             align-items: center; gap: 10px; }
+.step-back { background: none; border: 0; color: var(--mauve); cursor: pointer;
+             font: inherit; font-size: 12px; letter-spacing: .04em; padding: 0; }
+.step-back:hover { text-decoration: underline; }
+
+.btn-continue {
+  font: inherit; font-size: 15px; font-weight: 600; padding: 13px 22px;
+  border-radius: 10px; border: 0; cursor: pointer;
+  background: var(--mauve); color: var(--ivory); align-self: flex-start;
+  box-shadow: 0 6px 16px rgba(176,133,144,0.4);
+  transition: transform .15s ease, background .15s ease;
+}
+.btn-continue:hover { transform: translateY(-1px); background: #A2757F; }
+
+/* ── Demo panel ──
+   Built to echo .tutor-stage so the landing previews the real interface
+   rather than inventing a second look. Same ivory card, same line colour,
+   same warm gradient pooling at the base. */
+.landing-demo {
+  position: relative; background: var(--ivory); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 22px 22px 18px; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+}
+.landing-demo::before {
+  content: ''; position: absolute; inset: auto 0 0 0; height: 52%;
+  background: linear-gradient(180deg, transparent, rgba(165,164,135,0.20));
+  pointer-events: none;
+}
+.landing-demo > * { position: relative; }
+
+.demo-chip {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 7px;
+  font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--ink-soft); background: var(--cream);
+  border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px;
+}
+.demo-chip i {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--mauve);
+  animation: demoPulse 1.6s ease-in-out infinite;
+}
+@keyframes demoPulse { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
+
+.demo-bubble {
+  position: relative; background: var(--cream); border: 1.5px solid var(--mauve);
+  border-radius: 16px; padding: 14px 16px; width: 100%; min-height: 78px;
+  font-size: 14.5px; line-height: 1.65; color: var(--ink);
+}
+.demo-bubble::after {
+  content: ''; position: absolute; bottom: -9px; left: 50%; transform: translateX(-50%) rotate(45deg);
+  width: 16px; height: 16px; background: var(--cream);
+  border-right: 1.5px solid var(--mauve); border-bottom: 1.5px solid var(--mauve);
+}
+.demo-caret { display: inline-block; width: 2px; height: 1em; background: var(--mauve);
+              vertical-align: -2px; margin-left: 2px;
+              animation: demoBlink .9s step-end infinite; }
+@keyframes demoBlink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+/* A soft halo so the figure sits on something instead of floating. */
+#demo-figure {
+  display: flex; justify-content: center; width: 100%;
+  background: radial-gradient(120px 120px at 50% 58%, rgba(255,255,255,0.75), transparent 70%);
+}
+#demo-svg { width: 200px; height: auto; display: block; }
+.demo-label { font-size: 12px; color: var(--ink-soft); }
+.demo-label b { font-family: 'Fraunces', serif; color: var(--ink); font-weight: 600; font-size: 14px; }
+
+.swatch-row { display: flex; gap: 0; border-radius: 999px; overflow: hidden; width: 200px; height: 8px; border: 1px solid var(--line); }
+.swatch-row i { flex: 1; }
+.intro-fields { display: flex; flex-direction: column; gap: 18px; width: min(380px, 100%); margin-bottom: 24px; }
+.field { display: flex; flex-direction: column; gap: 8px; border: 0; padding: 0; margin: 0; }
+.field-label { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); }
+.intro-fields input[type="text"] {
+  font: inherit; font-size: 15px; padding: 12px 15px; border-radius: 11px;
+  border: 1px solid var(--line); background: var(--ivory); color: var(--ink);
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.intro-fields input[type="text"]::placeholder { color: var(--ink-soft); opacity: .65; }
+.intro-fields input[type="text"]:focus {
+  outline: none; border-color: var(--mauve); background: #fff;
+  box-shadow: 0 0 0 3px rgba(176,133,144,0.18);
+}
+.gender-row { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Pill-shaped rather than bare radios: they read as choices you can click,
+   and they stop the row looking like an unstyled form. */
+.gender-row label {
+  display: flex; align-items: center; gap: 7px; font-size: 14px; color: var(--ink);
+  cursor: pointer; padding: 8px 13px; border-radius: 999px;
+  border: 1px solid var(--line); background: rgba(247,243,230,0.6);
+  transition: border-color .18s ease, background .18s ease;
+}
+.gender-row label:hover { border-color: var(--mauve); background: var(--ivory); }
+.gender-row label:has(input:checked) { border-color: var(--mauve); background: var(--ivory); box-shadow: 0 0 0 2px rgba(176,133,144,0.14); }
+.gender-row input { accent-color: var(--mauve); }
+.level-picker { display: flex; flex-direction: column; gap: 12px; width: min(360px, 90vw); }
+.level-card {
+  background: var(--ivory); border: 1.5px solid var(--line); border-radius: var(--radius);
+  padding: 18px 22px; cursor: pointer; transition: all .2s;
+  display: flex; align-items: center; gap: 16px; text-align: left; width: 100%;
+  box-shadow: 0 4px 14px rgba(55,50,90,0.06);
+}
+.level-card:hover { border-color: var(--mauve); transform: translateX(4px); box-shadow: 0 8px 20px rgba(55,50,90,0.12); }
+.level-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+.level-card-name { font-family: 'Fraunces', serif; font-weight: 600; font-size: 17px; color: var(--ink); }
+.level-card-desc { font-size: 12.5px; color: var(--ink-soft); margin-top: 3px; }
+.level-card-arrow { margin-left: auto; color: var(--ink-soft); font-size: 18px; transition: transform .2s; }
+.level-card:hover .level-card-arrow { transform: translateX(3px); color: var(--mauve); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
