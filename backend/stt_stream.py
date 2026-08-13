@@ -82,6 +82,8 @@ SAMPLE_RATE = 16000
 # LLM Devanagari-spelled English and asking it to guess the original words.
 # This also does most of the work for step 4 (spoken Hinglish).
 STT_MODE = "codemix"
+#verbatim is a mode which preserves the original phonetics, but it is not yet available in the Sarvam API.
+
 
 # Pinned to Hindi, NOT "unknown".
 #
